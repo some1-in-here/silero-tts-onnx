@@ -1,6 +1,8 @@
 # Binaries & build outputs: models are built locally via scripts/
-# (python scripts/export_all.py) and never committed.
-onnx/
+# (python scripts/export_all.py) and never committed:
+# <repo>/models/onnx/ (generated .onnx + gate logs) and
+# <repo>/models/torch/ (raw upstream checkpoints). See models/README.md.
+models/
 # Local virtualenvs and generated audio.
 .venv-build/
 .venv/
@@ -15,3 +17,8 @@ silero_onnx/data/tokdir/
 build/
 dist/
 *.egg-info/
+# Model artifacts anywhere (not only onnx/): never commit binaries.
+*.onnx
+*.onnx.data
+*.pt
+*.pt.data

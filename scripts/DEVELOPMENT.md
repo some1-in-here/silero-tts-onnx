@@ -90,7 +90,7 @@ them breaks export or inference (each was a measured failure, not a guess):
   `deform_conv2d` — detection/segmentation ops) and warns when missing.
   None can occur in our graphs, so it stays out of the build env and the
   four warnings are silenced in `_common.py` (source logger to ERROR).
-- **LayerNorm spelled with primitives** (`scripts/layernorm.py`).
+- **LayerNorm spelled with primitives** (`scripts/strategies/v5/layernorm.py`).
   Current torch rewrites `aten::layer_norm` to `onnx::LayerNormalization`
   mid-export, dropping the output rank; the following `transpose(1,2)`
   then fails ("transpose for tensor of unknown rank", torch 2.14).

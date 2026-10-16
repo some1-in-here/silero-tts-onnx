@@ -1,8 +1,8 @@
-"""Run fixture generation + all five exporters in dependency order.
+"""Run fixture generation + version exporters in dependency order.
 
-Order is fixed: make_fixtures -> acoustic -> vocoder -> istft -> stress
--> ngram. Stops at the first failing step (non-zero exit propagates).
-Each step writes its own *_result.txt log next to the models.
+Order is fixed: make_fixtures -> v5 (5 models) -> v5_6 (4 models).
+Stops at the first failing step (non-zero exit propagates). Each step
+writes its own *_result.txt log next to the models.
 
 Usage:
   python scripts/export_all.py [--out-dir onnx]
@@ -13,14 +13,15 @@ import subprocess
 import sys
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-STEPS = ["make_fixtures.py", "export_acoustic.py", "export_vocoder.py",
-         "export_istft.py", "export_stress.py", "export_ngram.py"]
+STEPS = ["make_fixtures.py", os.path.join("strategies", "v5", "export.py"),
+         os.path.join("strategies", "v5_6", "export.py")]
 
 
 def main():
-    ap = argparse.ArgumentParser(description="export all five ONNX models")
+    ap = argparse.ArgumentParser(description="export all ONNX models "
+                                             "(v5_ru x5 + v5_6_ru x4)")
     ap.add_argument("--out-dir", default=os.path.join(
-        os.path.dirname(SCRIPTS_DIR), "onnx"))
+        os.path.dirname(SCRIPTS_DIR), "models", "onnx"))
     a = ap.parse_args()
     os.makedirs(a.out_dir, exist_ok=True)
     for step in STEPS:
@@ -31,7 +32,7 @@ def main():
             print(f"export_all: {step} FAILED (exit {r.returncode})",
                   flush=True)
             raise SystemExit(r.returncode)
-    print(f"export_all: all 5 models written to {a.out_dir}", flush=True)
+    print(f"export_all: all 9 models written to {a.out_dir}", flush=True)
 
 
 if __name__ == "__main__":

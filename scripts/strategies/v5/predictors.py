@@ -19,7 +19,11 @@ from layernorm import ExportLayerNorm
 
 
 class SeriesPredictor(torch.nn.Module):
-    def __init__(self, n_symbols=47, n_speakers=5, d_model=64, n_heads=2,
+    # n_speakers has NO default (unlike dims, it comes from the
+    # checkpoint): constructing without it is a TypeError, never a
+    # silent 5-voice module. Dimensions keep defaults - they are
+    # architecture, verified by shape asserts at transplant.
+    def __init__(self, n_speakers, n_symbols=47, d_model=64, n_heads=2,
                  n_layers=4, ffn_dim=64, kernel=9, p_drop=0.1, pe_max=5000):
         super().__init__()
         self.embedding = torch.nn.Embedding(n_symbols, d_model)

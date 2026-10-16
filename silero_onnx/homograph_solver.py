@@ -19,7 +19,9 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 def _cache_dir():
     """Writable per-user cache (package dir may be read-only when installed)."""
-    base = os.environ.get("SILERO_ONNX_CACHE") or os.path.join(
+    from . import env as _env
+
+    base = _env.cache_dir() or os.path.join(
         os.path.expanduser("~"), ".cache", "silero_onnx")
     os.makedirs(base, exist_ok=True)
     return base
@@ -106,17 +108,17 @@ class OnnxStress:
     def _session(self):
         if self._sess is None:
             import onnxruntime as ort
+            from . import env as _env
+
             if self._models_dir:
                 path = os.path.join(self._models_dir, "silero_stress.onnx")
             else:
-                path = os.path.abspath(os.path.join(
-                    os.path.dirname(DATA), "..", "onnx",
-                    "silero_stress.onnx"))
-            if not os.path.isfile(path):
+                envd = _env.models_dir()
+                path = os.path.join(envd, "silero_stress.onnx") if envd else None
+            if not path or not os.path.isfile(path):
                 raise SystemExit(
-                    "silero-onnx: error: missing model file " + path +
-                    " (build with python scripts/export_all.py or pass "
-                    "models_dir explicitly)")
+                    "silero-onnx: error: missing model file " + str(path) +
+                    " (pass models_dir explicitly or set SILERO_ONNX_MODELS)")
             so = ort.SessionOptions()
             so.log_severity_level = 3  # ERROR only (see engine.py)
             self._sess = ort.InferenceSession(os.path.abspath(path),

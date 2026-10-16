@@ -19,6 +19,8 @@ if ROOT not in sys.path:
 
 assert "torch" not in sys.modules, "test process imported torch before package!"
 
+from silero_onnx import env  # noqa: E402
+
 from silero_onnx import SileroTTS  # noqa: E402
 from silero_onnx import frontend as F  # noqa: E402
 from silero_onnx.homograph_solver import FullStress  # noqa: E402
@@ -26,18 +28,18 @@ from silero_onnx.ngram_accentor import OnnxNgram  # noqa: E402
 
 def _default_models():
     """Model dir for tests: SILERO_ONNX_MODELS override, else the local
-    build output (<repo>/onnx from scripts/export_all.py). No fallbacks:
+    build output (<repo>/models/onnx from scripts/export_all.py). No fallbacks:
     without models the suite fails loudly at collection with a build
     instruction instead of silently testing something else."""
-    env = os.environ.get("SILERO_ONNX_MODELS")
-    if env:
-        return env
-    local = os.path.normpath(os.path.join(ROOT, "onnx"))
+    envdir = os.environ.get(env.MODELS_DIR_VAR)
+    if envdir:
+        return envdir
+    local = os.path.normpath(os.path.join(ROOT, "models", "onnx"))
     if not os.path.isfile(os.path.join(local, "acoustic_v5_ru.onnx")):
         raise SystemExit(
-            "tests: no ONNX models in " + local + " — build them once: "
+            "tests: no ONNX models in " + local + " - build them once: "
             "python scripts/export_all.py (see scripts/README.md), or set "
-            "SILERO_ONNX_MODELS")
+            + env.MODELS_DIR_VAR + ")")
     return local
 
 
@@ -49,7 +51,7 @@ _tts = None
 def tts():
     global _tts
     if _tts is None:
-        _tts = SileroTTS(model_dir=MODELS)
+        _tts = SileroTTS(model_dir=MODELS, version="v5_ru")
     return _tts
 
 
@@ -167,11 +169,34 @@ def test_bad_sample_rate():
 
 def test_missing_models_dir():
     try:
-        SileroTTS(model_dir=os.path.join(ROOT, "no-such-dir"))
+        SileroTTS(model_dir=os.path.join(ROOT, "no-such-dir"),
+                  version="v5_ru")
     except SystemExit as e:
         assert "acoustic_v5_ru.onnx" in str(e.code)
     else:
         raise AssertionError("missing models dir must fail")
+
+
+def test_factory_unknown_version():
+    from silero_onnx.strategies import create_strategy
+    try:
+        create_strategy(version="v9")
+    except ValueError as e:
+        assert "v9" in str(e) and "v5_ru" in str(e)
+    else:
+        raise AssertionError("unknown version must fail with the list")
+
+
+def test_factory_v56_missing_models():
+    # v5_6 assets are not exported yet: the factory must fail loudly,
+    # naming the expected files (no silent fallback to v5_ru).
+    from silero_onnx.strategies import create_strategy
+    try:
+        create_strategy(version="v5_6_ru", model_dir=MODELS)
+    except SystemExit as e:
+        assert "acoustic_v5_6_ru.onnx" in str(e.code), str(e.code)
+    else:
+        raise AssertionError("missing v5_6 assets must fail loudly")
 
 
 def test_zzz_no_torch_at_end():

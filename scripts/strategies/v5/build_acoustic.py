@@ -22,7 +22,15 @@ def build_acoustic(jit_m, log=None):
             log.append(s)
 
     taco = _g(jit_m, "tacotron")
-    new = AcousticClean().eval()
+    # Speaker count and prosody table come from the checkpoint itself
+    # (never hardcoded): every speaker table in the graph must agree on
+    # N, and copy_ re-verifies each shape below.
+    n_spk = _g(taco, "speaker_embedding").weight.shape[0]
+    assert tuple(_g(taco, "speaker_embedding").weight.shape) == (n_spk, 128)
+    mean_std = list(jit_m.mean_std_coef)
+    assert len(mean_std) == n_spk, (len(mean_std), n_spk)
+    new = AcousticClean(n_speakers=n_spk, mean_std=mean_std).eval()
+    lg(f"speakers: N={n_spk} (tacotron/predictors/mean_std agree)")
     n = 0
     with torch.no_grad():
         new.encoder.embedding.weight.copy_(_g(taco, "embedding").weight)
@@ -53,6 +61,7 @@ def build_acoustic(jit_m, log=None):
                           (new.pitch.inner, _g(jit_m, "pitch_predictor", "pitch_pred"))):
             mod.embedding.weight.copy_(_g(omod, "embedding").weight)
             n += 1
+            assert _g(omod, "speaker_embedding").weight.shape[0] == n_spk
             mod.speaker_embedding.weight.copy_(_g(omod, "speaker_embedding").weight)
             n += 1
             mod.pos.scale.copy_(_g(omod, "transformer", "pos_encoder").scale)
@@ -78,7 +87,7 @@ def build_acoustic(jit_m, log=None):
             mod.norm.weight.copy_(_g(omod, "transformer", "norm").weight)
             mod.norm.bias.copy_(_g(omod, "transformer", "norm").bias)
             n += 2
-        assert tuple(_g(taco, "speaker_embedding").weight.shape) == (5, 128)
+        assert tuple(_g(taco, "speaker_embedding").weight.shape) == (n_spk, 128)
         new.spk_emb.weight.copy_(_g(taco, "speaker_embedding").weight)
         n += 1
         pp = _g(taco, "pitch_proj")

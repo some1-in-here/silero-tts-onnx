@@ -1,170 +1,218 @@
-# silero-onnx-tts
+# silero-onnx-tts 🔊
 
-100% PyTorch-independent Russian text-to-speech: Silero TTS v5 voices,
-executed entirely in ONNX Runtime. Text in, WAV out — no `torch` anywhere
-in the runtime process (asserted by the test suite via `sys.modules`).
+A PyTorch-independent Russian text-to-speech engine powered by Silero TTS
+and ONNX Runtime. Text in, WAV out — no `torch` in the runtime process
+(verified by the test suite via `sys.modules`).
+
+Two model generations: **v5_ru** (classic pipeline, SSML-capable) and
+**v5_6_ru** (emphasis markers, the default).
 
 ## Quickstart: from zero to audible speech (copy-paste)
 
 ```bash
 cd silero
-# 1. One-off build: export the five ONNX models into onnx/ (needs torch,
-#    hence a separate venv; the runtime itself stays torch-free).
+
+# 1. Build the ONNX models into models/onnx/ (one-time setup; requires torch).
 py -3.12 -m venv .venv-build
-.venv-build\Scripts\activate
-python -m pip install -r scripts/requirements-export.txt   # plain `python`: inside the venv it IS 3.12 (`py -3.12` would bypass the venv)
-$env:PYTHONUTF8 = '1'   # Windows only: torch prints ✅/❌, cp1252 console crashes
-                        # without UTF-8 mode. Session-only: stays after
-                        # deactivate until the shell closes (Remove-Item Env:PYTHONUTF8 to unset)
+.venv-build\Scripts\activate   # plain `python` uses the venv's Python 3.12; `py -3.12` would bypass it
+python -m pip install -r scripts/requirements-export.txt   # torch + onnx/onnxscript stacks, CPU-only torch index
+$env:PYTHONUTF8 = '1'   # Windows only: torch prints ✅/❌; cp1252 can crash without UTF-8 mode
+                        # Session-only: persists after deactivate until the shell closes; unset with `Remove-Item Env:PYTHONUTF8`
 python scripts/export_all.py
-python scripts/check_models.py   # expect "all 5 models + smoke test passed"
+python scripts/check_models.py   # expect "all models + smoke test passed"
+deactivate  # leave the build venv; you can delete .venv-build afterward
 
-# 2. Runtime install (your normal env, no torch here).
-deactivate
-py -3.12 -m pip install -e .
+# 2. Install the runtime (no torch).
+py -3.12 -m pip install -e .   # onnxruntime, numpy, soundfile, num2words only
 
-# 3. Speak: text in, WAV out (onnx/ is found automatically).
+# 3. Generate speech (models/onnx/ is discovered automatically).
 silero-onnx "Привет! Меня зовут Ксения." -o out.wav --speaker xenia
 ```
 
-Play `out.wav` in any player, or stream straight to speakers:
+Play `out.wav` in any audio player, or stream speech directly to your speakers:
 
 ```python
-import sounddevice as sd   # pip install sounddevice
+import sounddevice as sd  # pip install sounddevice
 from silero_onnx import SileroTTS
-tts = SileroTTS()          # onnx/ picked up automatically
-audio, _ = tts.synthesize("Замок был открыт.", speaker="xenia")
-sd.play(audio, 48000); sd.wait()
+
+tts = SileroTTS(model_dir="path/to/models")  # explicit path (or SILERO_ONNX_MODELS); v5_6_ru by default
+audio, _ = tts.synthesize("Меня зовут **Ксения**.", speaker="xenia")
+sd.play(audio, 48000)
+sd.wait()
 ```
 
-Build details live in `scripts/README.md`, internals in `DEVELOPMENT.md`.
+**Next:** [Install](#install) · [Usage](#usage)
+
+Build details: [`scripts/README.md`](scripts/README.md). Development and internals: [`DEVELOPMENT.md`](DEVELOPMENT.md).
 
 ## Features
 
-- 5 voices: `aidar`, `baya`, `kseniya`, `eugene`, `xenia`, 48 kHz, CPU.
-- Runtime deps only: `onnxruntime`, `numpy`, `soundfile`, `num2words`.
-- Fast: RTF ~25x on CPU (4.15 s of audio in ~0.18 s wall time) — on par
-  with torch CPU on the same texts (31x/28x and 31x/23x measured), while
-  dropping the ~2 GB torch dependency entirely.
-- Smart frontend: abbreviations, numbers (incl. negative/fractional),
+- ✨ Emphasis (v5_6_ru): `**word**` emphasized, `*word*` focused,
+  `<intensity=0..3>` focus strength — see [Emphasis](#emphasis-v5_6_ru-only).
+- 🗣️ 5 voices: `aidar`, `baya`, `kseniya`, `eugene`, `xenia`, 48 kHz, CPU.
+- 📦 Runtime deps only: `onnxruntime`, `numpy`, `soundfile`, `num2words`.
+- ⚡ Fast: RTF ~25x on CPU (4.15 s of audio in ~0.18 s wall time) — on par
+  with torch CPU on the same texts, while dropping the ~2 GB torch
+  dependency entirely.
+- 🧠 Smart frontend: abbreviations, numbers (including negative and fractional),
   automated stress, yo-letter and homograph disambiguation.
-- Measured quality vs the original pipeline: max abs error ~1e-4 on waveforms
-  (9.4e-05 measured torch-chain vs ONNX-chain, T32 reference).
+- 📏 Measured quality vs the original pipeline: max absolute waveform error
+  ~1e-4 for v5 (9.4e-05 torch-chain vs ONNX-chain); single-span v5_6
+  emphasis matches at ~2e-04 end to end.
 
 ## Install
 
-```bash
-py -3.12 -m pip install -e .     # runtime only: onnxruntime/numpy/soundfile/num2words
-```
+Two environments, strictly separated: torch (~2 GB) lives **only** in a
+throwaway build venv used to export the models. Everyday use needs just the
+lean runtime. If you download prebuilt models from Releases, you can skip the
+build environment entirely.
 
-vs the build env (separate venv, torch allowed, one-off model export):
+| | 🏭 Build env | 📦 Runtime env |
+|---|---|---|
+| What | the factory (model exporters) | the runtime (this package) |
+| torch | yes (export needs it) | never (stays torch-free) |
+| Where | a separate `.venv-build` | your normal environment |
+| When | once (to build `models/onnx/`, then dormant) | always (to use the voices) |
+
+### 🏭 Build env (only to export or regenerate models)
 
 ```bash
 py -3.12 -m venv .venv-build
-.venv-build\Scripts\activate
-python -m pip install -r scripts/requirements-export.txt   # inside .venv-build (plain python = venv python); torch/onnx/onnxscript + CPU torch index
+.venv-build\Scripts\activate   # plain `python` uses the venv's Python 3.12; `py -3.12` would bypass it
+python -m pip install -r scripts/requirements-export.txt   # torch + onnx/onnxscript stacks, CPU-only torch index
+$env:PYTHONUTF8 = '1'   # Windows only: torch prints ✅/❌; cp1252 can crash without UTF-8 mode
+                        # Session-only: persists after deactivate until the shell closes; unset with `Remove-Item Env:PYTHONUTF8`
+python scripts/export_all.py
+python scripts/check_models.py   # expect "all models + smoke test passed"
+deactivate  # leave the build venv; you can delete .venv-build afterward
 ```
 
-| | `pip install -e .` | `pip install -r scripts/requirements-export.txt` |
-|---|---|---|
-| What | the **runtime** (this package) | the **factory** (model exporters) |
-| torch | never (stays torch-free) | yes (export needs it) |
-| Where | your normal env | a separate `.venv-build` |
-| When | always (to use the voices) | once (to build `onnx/`, then dormant) |
+### 📦 Runtime env (everyday use, no torch)
 
-Python 3.12.
-
-## Models
-
-Inference needs a directory with five self-contained ONNX models
-(single files, weights inside — no `.data` sidecars):
-
-- `acoustic_v5_ru.onnx` (~31 MB) — text tokens + speaker + prosody
-  rates → mel-spectrogram (192 dims) + per-token durations;
-  the voice itself lives here
-- `vocoder_v5_ru.onnx` (~58 MB) — mel → split spectral parts
-  (`mag`, `x`, `y`; 1201 dims), no complex numbers on the boundary
-- `istft_48k.onnx` (~92 MB) — (`mag`, `x`, `y`) → waveform via a
-  real-valued inverse STFT (float64 IDFT core inside)
-- `silero_stress.onnx` (~117 MB, homosolver) — picks the right variant
-  of homographs (`замок`: castle/lock) with a BERT-tiny over the
-  sentence context
-- `ngram_core.onnx` (~8 MB, plain-word stress) — EmbeddingBag over
-  character n-grams + two MLP heads: where the stress falls and
-  where `е` becomes `ё`
-
-These are produced once by the export pipeline (see `DEVELOPMENT.md`);
-they are data, not code, and are not part of the wheel. Pass the
-directory explicitly or via the `SILERO_ONNX_MODELS` variable.
-
-Shortcut without any build: download the five `.onnx` files from the
-GitHub Releases page into a local `onnx/` directory — that plus
-`pip install -e .` is everything the runtime needs (fixtures, gate
-logs and torch are build-time only; the tokenizer cache rebuilds
-itself on first run).
+```bash
+py -3.12 -m pip install -e .   # onnxruntime, numpy, soundfile, num2words only
+```
 
 ## Usage
 
-Two modes — same engine underneath, pick the interface:
+Two interfaces, one engine. Select the model version with
+`version="v5_ru"` in Python or `--model-version v5_ru` in the CLI.
+The default is `v5_6_ru`.
 
 ### A. Python library (embed in your code)
 
 ```python
 from silero_onnx import SileroTTS
-tts = SileroTTS(model_dir="path/to/models")   # or SILERO_ONNX_MODELS, or <repo>/onnx auto
-audio = tts.synthesize("Замок был открыт.", speaker="xenia")  # float32 mono, 48 kHz
+
+tts = SileroTTS(model_dir="path/to/models")  # or SILERO_ONNX_MODELS; defaults to v5_6_ru
+audio, _ = tts.synthesize("Меня зовут **Ксения**.", speaker="xenia")  # float32 mono, 48 kHz
 tts.synthesize_to_file("Привет, мир!", "out.wav", speaker="baya")
-print(tts.speakers)   # ['aidar', 'baya', 'eugene', 'kseniya', 'xenia']
+print(tts.speakers)  # ['aidar', 'baya', 'eugene', 'kseniya', 'xenia']
+
+tts5 = SileroTTS(model_dir="path/to/models", version="v5_ru")  # classic pipeline + SSML
 ```
 
 ### B. CLI utility (one-liners, scripts, no Python code)
 
 ```bash
-silero-onnx "Привет! Меня зовут Ксения." -o out.wav --speaker xenia
-silero-onnx --speakers
-silero-onnx --help   # --models, --output, --speaker, --ssml
-silero-onnx --examples
+silero-onnx "Меня зовут **Ксения**." -o out.wav --speaker xenia
+silero-onnx --model-version v5_ru "Привет! Меня зовут Ксения." -o out5.wav
+
+silero-onnx --help      # --models-dir, --output, --speaker, --model-version, --ssml
+silero-onnx --examples  # runnable samples: versions, emphasis, stress, SSML
+silero-onnx --speaker-list   # needs no models; --model-list lists versions
 ```
 
-## SSML (`--ssml` / `ssml=True`)
+## Emphasis (v5_6_ru only) ✨
 
-`<speak>` root is mandatory — without it the input is rejected with a
+| Markup | Effect | Example |
+|---|---|---|
+| `**word**` | Emphasized | `Меня зовут **Ксения**.` |
+| `*word*` | Focused | `Меня зовут *Ксения*.` |
+| `<intensity=N>` | Focus strength 0–3 (default 3) | `<intensity=1>Тихо говорю.</intensity>` |
+
+Single-span emphasis matches the original pipeline near-exactly.
+Multi-sentence focus uses full-sequence predictor passes by design
+(the engine's operating point — see [`scripts/strategies/v5_6/README.md`](scripts/strategies/v5_6/README.md)).
+
+## SSML (`--ssml` / `ssml=True`, v5_ru only)
+
+The `<speak>` root is mandatory. Without it, the input is rejected with a
 one-line error (no traceback). Plain text without `--ssml` never parses
 tags: `<break/>` would be vocalized as words.
 
 | Tag | What it does | Example |
 |---|---|---|
-| `<break time="500ms"/>` / `<break time="2s"/>` | exact pause (ms, whole seconds) | `…пауза. <break time='500ms'/> Вот…` |
+| `<break time="500ms"/>` / `<break time="2s"/>` | Exact pause (milliseconds or whole seconds) | `…пауза. <break time='500ms'/> Вот…` |
 | `<break strength="…"/>` | `x-weak` 25 ms … `x-strong` 1000 ms | `<break strength='weak'/>` |
 | `<prosody rate="…">` | `x-slow` 0.5 … `x-fast` 1.5, or `150%` | `<prosody rate='fast'>Скорее!</prosody>` |
-| `<prosody pitch="…">` | `x-low` 0.75 … `x-high` 1.25, `robot` 0, or `+12%`/`-10%` | `<prosody pitch='high'>Высоко.</prosody>` |
-| `<p>` / `<s>` | paragraph/sentence breaks (`x-strong`/`strong`) | `<s>Первое.</s><s>Второе.</s>` |
+| `<prosody pitch="…">` | `x-low` 0.75 … `x-high` 1.25, `robot` 0, or `+12%` / `-10%` | `<prosody pitch='high'>Высоко.</prosody>` |
+| `<p>` / `<s>` | Paragraph/sentence breaks (`x-strong` / `strong`) | `<s>Первое.</s><s>Второе.</s>` |
 
 How it works: prosody becomes per-token rate/pitch arrays (one acoustic
-pass, no model changes); `<break>` pauses force exact durations
+pass, no model changes). `<break>` pauses force exact durations
 (500 ms → 40 frames) in a second pass plus mel silencing. User `+`
-stress marks keep working inside SSML.
+stress marks continue to work inside SSML.
 
 Limits, all measured: fractional seconds (`1.5s`) fail like upstream;
 breaks on commas skip upstream's support re-prediction (the pause
-itself stays exact); `silero-onnx --examples` lists runnable samples.
+itself stays exact). Run `silero-onnx --examples` for runnable samples.
 
 ## Tests
 
 ```bash
 py -3.12 -m pip install -e ".[dev]"
-py -3.12 -m pytest tests/ -v   # 58 tests, ~25 s, torch-free guaranteed
+py -3.12 -m pytest tests/ -v  # 72 tests, ~25 s, torch-free guaranteed
 ```
+
+## Models
+
+Inference needs a directory with self-contained ONNX models (single
+files, weights included — no `.data` sidecars).
+
+**v5_ru** (5 files):
+
+- `acoustic_v5_ru.onnx` (~31 MB) — text + speaker + prosody → mel + durations
+- `vocoder_v5_ru.onnx` (~58 MB) — mel → split spectral parts (no complex boundary)
+- `istft_48k.onnx` (~92 MB) — spectrum → waveform (real-valued ISTFT inside)
+- `silero_stress.onnx` (~117 MB) — homograph disambiguation (BERT-tiny)
+- `ngram_core.onnx` (~8 MB) — plain-word stress + yo
+
+**v5_6_ru** (4 files + the shared two above):
+
+`acoustic_v5_6_ru.onnx` (~26 MB),
+`dur_predictor_v5_6_ru.onnx` + `pitch_predictor_v5_6_ru.onnx`
+(~2.5 MB each), `vocoder_v5_6_ru.onnx` (~151 MB, direct mel → audio).
+
+These are produced once by the export pipeline (see [`DEVELOPMENT.md`](DEVELOPMENT.md)).
+They are data, not code, and are not part of the wheel. Pass the directory
+explicitly or set `SILERO_ONNX_MODELS`.
+
+**Shortcut without a build:** download the `.onnx` files from the
+[GitHub Releases](https://github.com/some1-in-here/silero-tts-onnx/releases)
+page into a local `models/onnx/` directory. Then `pip install -e .` is all the
+runtime needs.
 
 ## Notes
 
 - Single utterance per call (batch = 1); very long inputs follow the
   original ~1000-symbol guidance.
-- Plain text only (punctuation pauses `. , ! ?` work); no SSML tags.
-- Output length can differ by ±1 hop-frame (12.5 ms, inaudible) between
-  runs on texts whose durations land exactly on .5 rounding boundaries;
-  content still matches to ~1e-4. Boundary homographs (e.g. мел/мёл)
-  may resolve either valid way for the same reason.
+- v5_6_ru takes plain text with markers (no SSML); v5_ru takes plain
+  text or SSML.
+
+## Environment variables
+
+| Variable | What it does |
+|---|---|
+| `SILERO_ONNX_MODELS` | model directory (validated by the version's acoustic file). Priority: explicit `model_dir=` argument → this var → `<repo>/onnx` autodiscovery (**CLI only**; library code never looks there) |
+| `SILERO_ONNX_CACHE` | tokenizer cache root (default `~/.cache/silero_onnx`) |
+| `NO_COLOR` | disable CLI colors (standard convention; colors are also auto-off on pipes) |
+| `PYTHONUTF8` | not ours — stock Python: forces UTF-8 output (needed on cp1252 Windows consoles) |
+
+Set per-session (`$env:SILERO_ONNX_MODELS='D:\models\silero\onnx'` /
+`export SILERO_ONNX_MODELS=...`) or persistently (Windows environment
+settings / `.bashrc`). Nothing is stored in the project — env vars live
+in the OS environment, each process reads them at startup.
 
 ## License
 
@@ -172,12 +220,12 @@ This project is licensed under **CC BY-NC-SA 4.0** (see `LICENSE`).
 In short: non-commercial use only, credit the authors, share alike.
 
 - Original author: the **Silero Team**
-  (https://github.com/snakers4/silero-models).
+  ([silero-models](https://github.com/snakers4/silero-models)).
 - This product is a **derivative work** (Adapted Material) based on
   Silero TTS v5, used under CC BY-NC-SA 4.0. What was changed:
   weights transplanted into reimplemented modules and exported to
   ONNX (acoustic/vocoder/ISTFT), stress/ngram cores exported to ONNX,
   frontend and tooling rewritten torch-free.
-- Stress/accentor models come from `silero-stress`
-  (https://github.com/snakers4/silero-stress) under the MIT license,
+- Stress/accentor models come from
+  [`silero-stress`](https://github.com/snakers4/silero-stress) under the MIT license,
   © Silero Team.

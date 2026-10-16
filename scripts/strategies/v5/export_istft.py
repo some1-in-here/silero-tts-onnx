@@ -21,13 +21,21 @@ the repo root so relative paths resolve.
 
 Usage (from the repo root, build env installed):
   pip install -r scripts/requirements-export.txt
-  python scripts/export_istft.py [--out-dir onnx]
+  python scripts/strategies/v5/export_istft.py [--out-dir onnx]
 
 Result: <out-dir>/istft_48k.onnx (weights inlined, single file).
 """
 import argparse
 import os
+import sys
 
+# Path bootstrap for `python scripts/strategies/v5/<this>.py`
+# (v5 blocks live next to this file; shared _common in scripts/).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.dirname(os.path.dirname(_HERE)), _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+del _HERE, _p
 from _common import (DEFAULT_OUT_DIR, Logger, begin, check_and_gate,
                      collapse_call, finish, fixtures_dir,
                      inline_external_data, seed_all, stochastic_probe)

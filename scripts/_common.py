@@ -37,7 +37,56 @@ del _logging
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS_DIR)  # repo root: silero/
-DEFAULT_OUT_DIR = os.path.join(ROOT, "onnx")
+DEFAULT_OUT_DIR = os.path.join(ROOT, "models", "onnx")
+
+
+def package_data_path(*names):
+    """Repo package-data path: <repo>/silero_onnx/data/<names...>.
+
+    Used by export steps that (re)generate versioned runtime tables
+    (currently speakers.json). The file stays a committed source: the
+    script logs what it did, git shows the diff, a human commits it.
+    """
+    return os.path.join(ROOT, "silero_onnx", "data", *names)
+
+
+def write_speakers_json(entries, path, log):
+    """Write-or-validate the torch-free speaker map (no torch needed here).
+
+    `entries` is [(name, speaker_id, model_id)] in checkpoint order,
+    taken from the hub package's own `get_speakers()` (never positional
+    guesses). Format matches the committed file exactly
+    (`{"name": {"id": [sid], "model": mid}}`, single line, no trailing
+    newline). Rules, all loud:
+    - missing file -> write it;
+    - identical content -> log "unchanged", touch nothing;
+    - anything else (added/removed/renumbered voice) -> SystemExit
+      naming the diff: two versions must never silently overwrite each
+      other's table (a new voice is an engineer decision: per-version
+      tables would be a bigger, separate change).
+    """
+    import json
+
+    want = {name: {"id": [sid], "model": mid} for name, sid, mid in entries}
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            have = json.load(f)
+        if have == want:
+            log(f"speakers.json unchanged ({len(want)} voices)")
+            return
+        extra = sorted(set(want) - set(have))
+        gone = sorted(set(have) - set(want))
+        moved = sorted(n for n in set(want) & set(have)
+                       if want[n] != have[n])
+        raise SystemExit(
+            "speakers.json mismatch: refusing to overwrite "
+            f"(added={extra}, removed={gone}, renumbered={moved}). "
+            "A new/renamed voice is an engineer decision, not an "
+            "export side effect.")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(want, f)
+    log(f"speakers.json written ({len(want)} voices): "
+        f"{os.path.basename(path)}")
 
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)

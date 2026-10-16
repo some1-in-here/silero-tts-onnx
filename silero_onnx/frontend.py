@@ -221,6 +221,23 @@ class TorchFreeFrontend:
                 f"silero-onnx: error: cannot load frontend data from "
                 f"'{data_dir}': {e}")
 
+    def text_to_ids(self, text):
+        """Normalized+stressed text -> (sos/eos id list, stressed text).
+
+        Shared by prepare() (v5 feeds) and Strategy_V5_6 (which also
+        needs the stressed string for focus re-marking)."""
+        t = normalize(text)
+        return self.stress_and_tokenize(t)
+
+    def stress_and_tokenize(self, clean_text):
+        """Already-normalized text -> (sos/eos id list, stressed text)."""
+        t = self.stress(clean_text)
+        # errors="filter": drop unknown chars silently, exactly like the
+        # original prepare_text_input regex (emoji/latin/specials never crash).
+        ids = add_sos_eos(tokenize(t, self.symbol_to_id, errors="filter"),
+                          self.symbol_to_id)
+        return ids, t
+
     def prepare(self, text, speaker="xenia"):
         """Text -> dict of numpy arrays matching acoustic ONNX inputs."""
         import numpy as np

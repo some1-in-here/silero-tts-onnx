@@ -37,7 +37,7 @@ the models (one-off export, outside this repo).
 ## 2. Architecture decisions
 
 - **Zero-PyTorch runtime.** No `import torch` in `silero_onnx/` or `tests/`;
-  enforced by first/last assertions in both test files. Rationale: small
+  enforced by import assertions in each test file. Rationale: small
   install, no 2 GB dependency, embeddable deployments.
 - **Static data ships in the wheel.** `silero_onnx/data/*.json` (homodict,
   phrases, tokenizer vocab, ngrams, exceptions, symbols, speakers, stress
@@ -62,26 +62,50 @@ the models (one-off export, outside this repo).
 ## 3. Files in `silero_onnx/`
 
 - `__init__.py` — public facade only: `SileroTTS`, `main`.
-- `engine.py` — `SileroTTS(model_dir, data_dir)`, ORT session loading with
-  missing-file diagnostics, `synthesize()` / `synthesize_to_file()` (both
-  with `ssml=` flag: prosody via per-token rate/pitch arrays, `<break>`
-  via two-pass duration forcing + numpy fx_pauses port), CLI.
-  Model discovery: explicit `model_dir` > `SILERO_ONNX_MODELS` >
-  `<repo>/onnx`; no other fallbacks (missing models fail loudly).
-  Production must pass `model_dir` explicitly.
+- `engine.py` — CLI (`--models/--model-version/--ssml/--examples`),
+  console output (colors/examples text). Inference itself lives in
+  `strategies/`; model-directory autoresolve for the CLI
+  (`SILERO_ONNX_MODELS` env, then `<repo>/models/onnx/`).
+- `env.py` — single source of truth for environment variables
+  (`MODELS_DIR_VAR`, `CACHE_VAR`, `NO_COLOR_VAR` plus `models_dir()`,
+  `cache_dir()`, `colors_enabled()`). Every `os.environ` read in the
+  runtime goes through here, tests included — a rename touches one file.
+- `versions.py` — `MODEL_SETS` (model filenames per version, single
+  source of truth; v5_6 has no `istft` step — measured) +
+  `VERSIONS` / `SPEAKERS` + `DEFAULT_VERSION` (`v5_6_ru`).
+- `strategies/` — versioned inference behind one contract:
+  `base.py` (`TTSStrategy` ABC: abstract `speakers`/`synthesize`,
+  concrete `synthesize_to_file()`; the shared vocoder/ISTFT tail serves
+  v5 — v5_6 calls its direct vocoder session instead, no `istft`),
+  `v5/strategy.py` (`Strategy_V5`: frontend → acoustic → vocoder →
+  istft, two-pass `<break>` forcing outside the graph),
+  `v5_6/strategy.py` (`Strategy_V5_6`: markers → `_prepare()` feeds
+  (`V56Feeds` namedtuple) → dur/pitch predictor sessions →
+  `gt_durs=exp(pred)-1`, raw `gt_pitch` → acoustic → vocoder audio;
+  SSML rejected loudly, unmatched focus words ignored like upstream),
+  `v5_6/emphasis.py` (torch-free port of the upstream v5_6 text
+  algorithms: question taxonomy, `**` validation/conversion, focus
+  re-marking, sentence spans, `place_tokens`; torch-verified vectors
+  live in `tests/test_v56_text.py`),
+  `__init__.py` (factory `create_strategy` + `SileroTTS` facade with
+  `version=`; unknown versions → `ValueError`, missing assets →
+  `SystemExit` listing expected filenames; `model_dir=None` resolves
+  through the env var only — the `<repo>/...` fallback is CLI-side).
 - `frontend.py` — `normalize()` (whitespace/abbr/numbers), `tokenize()` (+
   `errors="raise"|"filter"`), baked symbol/speaker tables, `TorchFreeFrontend`
   assembling numpy feeds (`prepare()` plain, `prepare_ssml()` with per-token
-  prosody arrays and break plans). Unknown chars are *filtered* (matches the
+  prosody arrays and break plans; `text_to_ids()`/`stress_and_tokenize()`
+  shared with `Strategy_V5_6`). Unknown chars are *filtered* (matches the
   original pipeline's silent dropping, unlike the strict default of
   `tokenize()`).
 - `ssml.py` — stdlib-only `<speak>` parser (break/prosody/p/s, upstream
   tables and errors mirrored, deviations documented); ms→frames clock.
 - `homograph_solver.py` — `OnnxStress` (tokenizer + regex/phrases + ORT batch
   + string assembly) and `FullStress` (homographs-then-ngrams ordering with
-  the original skip-list wiring).
+  the original skip-list wiring). Model/cache dirs resolved via `env`.
 - `ngram_accentor.py` — `OnnxNgram`: `<word>` n-grams 1–4 → ids (UNK
   fallback), offsets, ORT core, exceptions/user-marks/1-syllable rules.
+  Model dir resolved via `env`.
 - `bert_tokenizer.py` — verbatim vendored stdlib-only WordPiece tokenizer.
 - `data/` — runtime JSON tables (see above); `tokdir/` is *generated*, not shipped.
 
@@ -91,7 +115,18 @@ the models (one-off export, outside this repo).
 silero/                          # repo root
 ├── silero_onnx/                 # torch-free runtime package (ships in the wheel)
 │   ├── __init__.py              # public facade: SileroTTS, main
-│   ├── engine.py                # ORT sessions, synthesize()/to_file(), CLI (--ssml, --examples)
+│   ├── engine.py                # CLI, discovery, console output (inference lives in strategies/)
+│   ├── versions.py              # MODEL_SETS per version + DEFAULT_VERSION (v5_6_ru)
+│   ├── strategies/              # versioned inference behind TTSStrategy + factory
+│   │   ├── __init__.py          # create_strategy() + SileroTTS facade (version=)
+│   │   ├── base.py              # TTSStrategy ABC (+ shared vocoder/ISTFT tail, v5 path)
+│   │   ├── v5/                  # v5 inference strategy package
+│   │   │   ├── __init__.py      # re-exports Strategy_V5
+│   │   │   └── strategy.py      # Strategy_V5 (pipeline moved unchanged)
+│   │   └── v5_6/                # v5_6 inference strategy package
+│   │       ├── __init__.py      # re-exports Strategy_V5_6
+│   │       ├── strategy.py      # Strategy_V5_6 (markers → predictors → acoustic → vocoder)
+│   │       └── emphasis.py      # v5_6 text algorithms port (taxonomy/spans/place_tokens)
 │   ├── frontend.py              # normalize/tokenize/TorchFreeFrontend (+ prepare_ssml)
 │   ├── ssml.py                  # stdlib-only <speak> parser (break/prosody/p/s tables)
 │   ├── homograph_solver.py      # OnnxStress + FullStress (homographs-then-ngrams)
@@ -102,39 +137,55 @@ silero/                          # repo root
 │                                 # pause (sil_value for fx_pauses)
 ├── scripts/                     # one-off build: torch allowed, dormant after build
 │   ├── requirements-export.txt  # build-env installer (extra + CPU torch index)
-│   ├── export_all.py            # orchestrator: make_fixtures, then the 5 exporters
+│   ├── export_all.py            # orchestrator: fixtures → v5 (5 models) → v5_6 (4 models)
 │   ├── make_fixtures.py         # [gen] onnx/fixtures/*.pt + make_fixtures_result.txt
-│   ├── export_acoustic.py       # acoustic transplant+export | [gen] acoustic_v5_ru.onnx, ~31 MB
-│   ├── export_vocoder.py        # vocoder wrap+export        | [gen] vocoder_v5_ru.onnx
-│   ├── export_istft.py          # real-valued ISTFT export   | [gen] istft_48k.onnx, ~92 MB
-│   ├── export_stress.py         # homosolver BERT-tiny export | [gen] silero_stress.onnx
-│   ├── export_ngram.py          # EmbeddingBag+heads export   | [gen] ngram_core.onnx
 │   ├── check_models.py          # deployment check (torch-free, generates nothing)
 │   ├── check_parity.py          # torch-vs-ONNX e2e parity (build env only, generates nothing)
 │   ├── _common.py               # L1/L2 gates, seeds, unified `# header → L1/L2 → RESULT` log format
-│   ├── acoustic.py, build_acoustic.py, encoder.py, decoder.py, fftblock.py,
-│   │   slowmha.py, predictors.py, istft_model.py, layernorm.py  # clean torch ports (transplant target)
+│   ├── strategies/              # versioned export tracks (torch allowed here, never in runtime)
+│   │   ├── v5/                  # everything v5-specific (clean ports + 5 exporters + orchestrator)
+│   │   │   ├── export.py        # orchestrator: the 5 v5_ru exporters in order
+│   │   │   ├── export_acoustic.py / export_vocoder.py / export_istft.py /
+│   │   │   │   export_stress.py / export_ngram.py  # per-model exporters (path bootstrap inside)
+│   │   │   └── acoustic.py, build_acoustic.py, encoder.py, decoder.py, fftblock.py,
+│   │   │       slowmha.py, predictors.py, istft_model.py, layernorm.py  # clean torch ports
+│   │   └── v5_6/                # isolated v5_6_ru export track (reuses v5 blocks, never duplicates)
+│   │       ├── export.py        # orchestrator: spy capture → transplant → L0 → dynamo ×4 → L1/L2/e2e
+│   │       ├── build.py         # transplants with measured invariants (118 + 112/81 tensors)
+│   │       ├── series.py        # SeriesPredictor56 (+type/focus adds) / Dur/PitchPredictor56
+│   │       ├── forward.py       # Tacotron56 + Acoustic56 (branch-free control flow)
+│   │       ├── vocoder.py       # ConvNeXt backbone + Vocos ISTFT head (RealISTFT reuse)
+│   │       └── README.md        # track usage + engine operating point contract
 │   ├── README.md                # build quickstart + per-script table
 │   └── DEVELOPMENT.md           # exporter internals, thresholds, maintenance
-├── tests/                       # torch-free suites (58 tests, no fixtures, no torch)
+├── tests/                       # torch-free suites (72 tests, no fixtures, no torch)
 │   ├── test_production.py       # frontend/stress/facade/synthesis/errors
 │   ├── test_extended_robustness.py  # edges/threads/memory/integrity/RTF
 │   └── test_ssml.py             # SSML parser contract + prosody/break behavior + CLI
-├── onnx/ [gen]                  # local build output, git-ignored, never committed
-│   ├── acoustic_v5_ru.onnx [gen]  # ~31 MB single file: ids/spk/rates/coefs -> mel + durations
-│   ├── vocoder_v5_ru.onnx [gen]   # ~58 MB: mel -> mag/x/y spectral parts
-│   ├── istft_48k.onnx [gen]       # ~92 MB single file: (mag,x,y) -> waveform (float64 IDFT core)
-│   ├── silero_stress.onnx [gen]   # ~117 MB homosolver BERT-tiny (input_ids + spans -> logits)
-│   ├── ngram_core.onnx [gen]      # ~8 MB EmbeddingBag + stress/yo heads
-│   ├── fixtures/ [gen]            # generated references (make_fixtures.py, seed 42)
-│   │   ├── stress_ref.pt [gen]    # 7 real homograph windows for export_stress
-│   │   └── spec_ref.pt [gen]      # real spectrum for export_istft gates
-│   ├── fixtures_result.txt [gen]        # fixture generation log
-│   ├── acoustic_export_result.txt [gen] # acoustic L1/L2 gate log
-│   ├── vocoder_export_result.txt [gen]     # vocoder L1/L2 gate log
-│   ├── istft_export_result.txt [gen]         # istft L1/L2 gate log
-│   ├── stress_export_result.txt [gen]       # stress L1/L2 gate log
-│   └── ngram_export_result.txt [gen]         # ngram L1/L2 gate log
+│   ├── test_v56_text.py         # v5_6 text-algorithm vectors (torch-verified)
+│   └── test_factory.py          # strategy routing + V56Feeds contract (no models)
+├── models/ [gen]                  # local model storage, git-ignored (see models/README.md)
+│   ├── onnx/ [gen]                # export pipeline output
+│   │   ├── acoustic_v5_ru.onnx [gen]  # ~31 MB single file: ids/spk/rates/coefs -> mel + durations
+│   │   ├── vocoder_v5_ru.onnx [gen]   # ~58 MB: mel -> mag/x/y spectral parts
+│   │   ├── istft_48k.onnx [gen]       # ~92 MB single file: (mag,x,y) -> waveform (float64 IDFT core)
+│   │   ├── silero_stress.onnx [gen]   # ~117 MB homosolver BERT-tiny (input_ids + spans -> logits)
+│   │   ├── ngram_core.onnx [gen]      # ~8 MB EmbeddingBag + stress/yo heads
+│   │   ├── acoustic_v5_6_ru.onnx [gen]      # ~26 MB: seq/spk/rate/gt/type/focus -> mel + dur
+│   │   ├── dur_predictor_v5_6_ru.onnx [gen]      # ~2.5 MB: text/spk/mask/type/focus -> dur
+│   │   ├── pitch_predictor_v5_6_ru.onnx [gen]    # ~2.5 MB: text/spk/mask/type/focus -> pitch
+│   │   ├── vocoder_v5_6_ru.onnx [gen]            # ~151 MB: mel -> waveform (48 kHz path, no PQMF)
+│   │   ├── fixtures/ [gen]            # generated references (make_fixtures.py, seed 42)
+│   │   │   ├── stress_ref.pt [gen]    # 7 real homograph windows for export_stress
+│   │   │   └── spec_ref.pt [gen]      # real spectrum for export_istft gates
+│   │   ├── fixtures_result.txt [gen]        # fixture generation log
+│   │   ├── acoustic_export_result.txt [gen] # acoustic L1/L2 gate log
+│   │   ├── vocoder_export_result.txt [gen]     # vocoder L1/L2 gate log
+│   │   ├── istft_export_result.txt [gen]         # istft L1/L2 gate log
+│   │   ├── stress_export_result.txt [gen]       # stress L1/L2 gate log
+│   │   ├── ngram_export_result.txt [gen]         # ngram L1/L2 gate log
+│   │   └── v5_6_export_result.txt [gen]         # v5_6 L0/L1/L2/e2e gate log
+│   └── torch/ [gen]               # raw upstream checkpoints, placed manually
 ├── pyproject.toml               # runtime deps (torch-free) + export/dev extras
 ├── README.md                    # user quickstart (zero → audio)
 └── DEVELOPMENT.md               # this file
@@ -147,6 +198,10 @@ by convention, not by vigilance: each `export_<name>.py` writes
 `onnx/<name>*.onnx`, and `check_models.py::EXPECTED` is the
 machine-checked registry of every artifact the build must produce —
 adding a model means one row here, one exporter, one `EXPECTED` entry.
+v5_6 artifacts come from `scripts/strategies/v5_6/export.py` (names from
+`MODEL_SETS`) and are gated by `v5_6_export_result.txt` instead.
+v5_6 artifacts come from `scripts/strategies/v5_6/export.py` (names from
+`MODEL_SETS`) and are gated by `v5_6_export_result.txt` instead.
 
 ## 5. Development principles
 

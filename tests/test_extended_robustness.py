@@ -24,19 +24,21 @@ if ROOT not in sys.path:
 
 assert "torch" not in sys.modules, "test process imported torch before package!"
 
+from silero_onnx import env  # noqa: E402
+
 from silero_onnx import SileroTTS  # noqa: E402
 from silero_onnx import frontend as F  # noqa: E402
 
 def _default_models():
-    env = os.environ.get("SILERO_ONNX_MODELS")
-    if env:
-        return env
-    local = os.path.normpath(os.path.join(ROOT, "onnx"))
+    envdir = os.environ.get(env.MODELS_DIR_VAR)
+    if envdir:
+        return envdir
+    local = os.path.normpath(os.path.join(ROOT, "models", "onnx"))
     if not os.path.isfile(os.path.join(local, "acoustic_v5_ru.onnx")):
         raise SystemExit(
-            "tests: no ONNX models in " + local + " — build them once: "
+            "tests: no ONNX models in " + local + " - build them once: "
             "python scripts/export_all.py (see scripts/README.md), or set "
-            "SILERO_ONNX_MODELS")
+            + env.MODELS_DIR_VAR + ")")
     return local
 
 
@@ -50,7 +52,7 @@ _tts = None
 def tts():
     global _tts
     if _tts is None:
-        _tts = SileroTTS(model_dir=MODELS)
+        _tts = SileroTTS(model_dir=MODELS, version="v5_ru")
     return _tts
 
 
@@ -219,7 +221,7 @@ def test_fault_empty_model_files():
         for f in ("acoustic_v5_ru.onnx", "vocoder_v5_ru.onnx", "istft_48k.onnx"):
             open(os.path.join(tmp, f), "wb").close()  # present but empty/broken
         try:
-            SileroTTS(model_dir=tmp)
+            SileroTTS(model_dir=tmp, version="v5_ru")
         except SystemExit as e:
             assert "sidecar" in str(e.code) or "cannot load" in str(e.code), str(e.code)
         else:

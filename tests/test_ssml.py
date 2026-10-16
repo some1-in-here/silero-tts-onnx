@@ -16,6 +16,8 @@ if ROOT not in sys.path:
 
 assert "torch" not in sys.modules, "test process imported torch before package!"
 
+from silero_onnx import env  # noqa: E402
+
 from silero_onnx import SileroTTS  # noqa: E402
 from silero_onnx.ssml import (  # noqa: E402
     ms_to_frames,
@@ -24,15 +26,15 @@ from silero_onnx.ssml import (  # noqa: E402
 
 
 def _default_models():
-    env = os.environ.get("SILERO_ONNX_MODELS")
-    if env:
-        return env
-    local = os.path.normpath(os.path.join(ROOT, "onnx"))
+    envdir = os.environ.get(env.MODELS_DIR_VAR)
+    if envdir:
+        return envdir
+    local = os.path.normpath(os.path.join(ROOT, "models", "onnx"))
     if not os.path.isfile(os.path.join(local, "acoustic_v5_ru.onnx")):
         raise SystemExit(
-            "tests: no ONNX models in " + local + " — build them once: "
+            "tests: no ONNX models in " + local + " - build them once: "
             "python scripts/export_all.py (see scripts/README.md), or set "
-            "SILERO_ONNX_MODELS")
+            + env.MODELS_DIR_VAR + ")")
     return local
 
 
@@ -44,7 +46,7 @@ _tts = None
 def tts():
     global _tts
     if _tts is None:
-        _tts = SileroTTS(model_dir=MODELS)
+        _tts = SileroTTS(model_dir=MODELS, version="v5_ru")
     return _tts
 
 
@@ -249,7 +251,7 @@ def test_cli_ssml_smoke():
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "s.wav")
         main(["<speak>Привет.</speak>", "-o", out, "--speaker", "xenia",
-              "--ssml"])
+              "--ssml", "--model-version", "v5_ru"])
         assert os.path.isfile(out) and os.path.getsize(out) > 10000
 
 
@@ -260,7 +262,8 @@ def test_cli_invalid_ssml_clean_error():
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "s.wav")
         with pytest.raises(SystemExit) as e:
-            main(["<speak>A.</speak> tail", "-o", out, "--ssml"])
+            main(["<speak>A.</speak> tail", "-o", out, "--ssml",
+                  "--model-version", "v5_ru"])
         assert "speak" in str(e.value.code).lower()
         assert not os.path.exists(out)
 
@@ -285,8 +288,8 @@ def test_cli_examples_plain_without_tty():
     import os as _os
     from contextlib import redirect_stdout
     from silero_onnx.engine import examples_text
-    old = _os.environ.get("NO_COLOR")
-    _os.environ["NO_COLOR"] = "1"
+    old = _os.environ.get(env.NO_COLOR_VAR)
+    _os.environ[env.NO_COLOR_VAR] = "1"
     try:
         buf = io.StringIO()  # not a tty either
         with redirect_stdout(buf):
@@ -294,9 +297,45 @@ def test_cli_examples_plain_without_tty():
         assert "\033[" not in text and "\033[" not in buf.getvalue()
     finally:
         if old is None:
-            del _os.environ["NO_COLOR"]
+            del _os.environ[env.NO_COLOR_VAR]
         else:
-            _os.environ["NO_COLOR"] = old
+            _os.environ[env.NO_COLOR_VAR] = old
+
+
+def test_cli_model_list_needs_no_models(monkeypatch):
+    # --model-list prints versions without touching model files: any
+    # SileroTTS construction attempt fails the test outright.
+    import io
+    from contextlib import redirect_stdout
+    import silero_onnx.engine as _eng
+
+    def _bomb(*a, **k):
+        raise AssertionError("SileroTTS must not be constructed here")
+
+    monkeypatch.setattr(_eng, "SileroTTS", _bomb)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        assert _eng.main(["--model-list"]) is None
+    assert buf.getvalue().split() == ["v5_6_ru", "v5_ru"]
+
+
+def test_cli_speaker_list_needs_no_models(monkeypatch):
+    # --speaker-list works on a bare checkout: this is the regression
+    # test for constructing SileroTTS (and loading all models) before
+    # handling the flag.
+    import io
+    from contextlib import redirect_stdout
+    import silero_onnx.engine as _eng
+
+    def _bomb(*a, **k):
+        raise AssertionError("SileroTTS must not be constructed here")
+
+    monkeypatch.setattr(_eng, "SileroTTS", _bomb)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        assert _eng.main(["--speaker-list"]) is None
+    assert buf.getvalue().split() == ["aidar", "baya", "eugene",
+                                      "kseniya", "xenia"]
 
 
 def test_zzz_no_torch_at_end():

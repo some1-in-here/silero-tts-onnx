@@ -16,8 +16,17 @@ or standalone:
 """
 import argparse
 import os
+import sys
 
-from _common import (DEFAULT_OUT_DIR, Logger, begin, finish, fixtures_dir)
+# v5 build blocks moved to scripts/strategies/v5/ (symmetric layout).
+_V5_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "strategies", "v5")
+if _V5_DIR not in sys.path:
+    sys.path.insert(0, _V5_DIR)
+del _V5_DIR
+
+from _common import (DEFAULT_OUT_DIR, Logger, begin, finish, fixtures_dir,
+                     package_data_path, write_speakers_json)
 
 
 # Fixed sentence pool: must yield >= 7 neural (non-regex) homograph
@@ -99,6 +108,16 @@ def make_spec(log):
     model.to("cpu")
     part = model.packages[0]
     jit_m = part.models[0]
+
+    # Speaker map for the torch-free runtime: names AND ids come from
+    # the hub package's own get_speakers() (never positional guesses).
+    # Written to the versioned package data (review + commit the diff);
+    # a later version with a different table fails loudly in
+    # write_speakers_json instead of overwriting.
+    entries = [(name, *part.get_speakers(name)) for name in part.speakers]
+    entries = [(name, ids[0], mid) for name, ids, mid in entries]
+    write_speakers_json(entries, package_data_path("speakers.json"),
+                        log.log)
 
     def get(root, *names):
         m = root

@@ -18,6 +18,13 @@ import argparse
 import os
 import sys
 
+# v5 build blocks moved to scripts/strategies/v5/ (symmetric layout).
+_V5_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "strategies", "v5")
+if _V5_DIR not in sys.path:
+    sys.path.insert(0, _V5_DIR)
+del _V5_DIR
+
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPTS_DIR)
 if SCRIPTS_DIR not in sys.path:
@@ -37,7 +44,7 @@ GATES = {"mel": 1e-3, "mag": 5e-3, "audio": 5e-4}
 
 def main():
     ap = argparse.ArgumentParser(description="torch-vs-ONNX e2e parity")
-    ap.add_argument("--models", default=os.path.join(ROOT, "onnx"))
+    ap.add_argument("--models", default=os.path.join(ROOT, "models", "onnx"))
     a = ap.parse_args()
 
     import numpy as np

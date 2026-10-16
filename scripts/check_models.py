@@ -1,4 +1,4 @@
-"""Integrity check for a built model directory (default: <repo>/onnx/).
+"""Integrity check for a built model directory (default: <repo>/models/onnx/).
 
 Verifies, without torch:
   1. all five single-file .onnx models exist and load in onnxruntime
@@ -106,7 +106,7 @@ def _robustness(sessions, failures):
 
 def main():
     ap = argparse.ArgumentParser(description="check built ONNX model dir")
-    ap.add_argument("--models", default=os.path.join(ROOT, "onnx"))
+    ap.add_argument("--models", default=os.path.join(ROOT, "models", "onnx"))
     a = ap.parse_args()
 
     import onnxruntime as ort
@@ -143,7 +143,7 @@ def main():
 
     if not failures:
         from silero_onnx import SileroTTS
-        tts = SileroTTS(model_dir=a.models)
+        tts = SileroTTS(model_dir=a.models, version="v5_ru")
         audio, _dur = tts.synthesize("Привет.", speaker="xenia")
         import numpy as np
         assert audio.dtype == np.float32 and np.all(np.isfinite(audio))

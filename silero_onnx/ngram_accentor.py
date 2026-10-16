@@ -63,17 +63,17 @@ class OnnxNgram:
     def _session(self):
         if self._sess is None:
             import onnxruntime as ort
+            from . import env as _env
+
             if self._models_dir:
                 path = os.path.join(self._models_dir, "ngram_core.onnx")
             else:
-                path = os.path.abspath(os.path.join(
-                    os.path.dirname(DATA), "..", "onnx",
-                    "ngram_core.onnx"))
-            if not os.path.isfile(path):
+                envd = _env.models_dir()
+                path = os.path.join(envd, "ngram_core.onnx") if envd else None
+            if not path or not os.path.isfile(path):
                 raise SystemExit(
-                    "silero-onnx: error: missing model file " + path +
-                    " (build with python scripts/export_all.py or pass "
-                    "models_dir explicitly)")
+                    "silero-onnx: error: missing model file " + str(path) +
+                    " (pass models_dir explicitly or set SILERO_ONNX_MODELS)")
             so = ort.SessionOptions()
             so.log_severity_level = 3  # ERROR only (see engine.py)
             self._sess = ort.InferenceSession(os.path.abspath(path),

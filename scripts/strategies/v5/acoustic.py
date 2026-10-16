@@ -23,12 +23,21 @@ PUNKT = [3, 5, 6, 7, 8, 9, 10, 44, 45]
 
 
 class AcousticClean(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, n_speakers, mean_std=None):
+        # Both come from the checkpoint (see build_acoustic); the
+        # transplant copy_ calls re-verify every shape, so a wrong N
+        # fails loudly instead of degrading audio. mean_std has no safe
+        # default (it shifts pitch prosody): None raises instead of
+        # silently reusing stale numbers.
+        if mean_std is None:
+            raise ValueError("AcousticClean: mean_std must be read live "
+                             "from the checkpoint (no default: it shifts "
+                             "pitch prosody)")
         super().__init__()
         self.encoder = Encoder()
-        self.dur = DurPredictor()
-        self.pitch = PitchPredictor()
-        self.spk_emb = torch.nn.Embedding(5, 128)
+        self.dur = DurPredictor(n_speakers=n_speakers)
+        self.pitch = PitchPredictor(n_speakers=n_speakers)
+        self.spk_emb = torch.nn.Embedding(n_speakers, 128)
         self.pitch_proj = torch.nn.Conv1d(1, 128, 3, padding=1)
         self.len_reg = LengthRegulator()
         self.decoder = HourGlassDecoder()
@@ -37,8 +46,7 @@ class AcousticClean(torch.nn.Module):
         self.pitch_strength = 1.0
         self.register_buffer(
             "mean_std_table",
-            torch.tensor([2.2933171927261315, 6.2345206805083615,
-                          3.5824132100594106, 2.23754377017309, 5.266059701136986]))
+            torch.tensor(list(mean_std), dtype=torch.float32))
 
     @staticmethod
     def _clamp_dur_tail(dur: torch.Tensor) -> torch.Tensor:
