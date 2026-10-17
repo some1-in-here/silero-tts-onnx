@@ -141,6 +141,14 @@ them breaks export or inference (each was a measured failure, not a guess):
    upstream model behavior would be dishonest.
    Boundary `.5` cases (duration rounding, `мел/мёл` variants) are
    pinned as accepted multi-variants in tests, not hidden in exporters.
+   End-to-end (`check_parity.py`, the `tests/`-forbidden twin) has one
+   extra axis: torch-vs-ONNX noise is platform-dependent even on the
+   identical package stack (long-text mag 3.8e-3 on Windows vs 5.9e-3
+   on GitHub ubuntu-latest). Its waveform bar stays tight (5e-4;
+   measured <=2.8e-4 on both), while mel/mag bars are diagnostics with
+   deliberate headroom above the worst observation (2e-2) - a runner
+   change must not flake a diagnostic, and a broken export is orders of
+   magnitude off, not ~1.5x. Never widen the waveform bar to green a run.
 4. **Adding a model.** Copy the smallest fitting exporter, keep the
    pattern: argparse `--out-dir` → `begin()` header → reference inputs
    (real, not random, wherever content matters) → pre-gate → export →

@@ -39,4 +39,4 @@ jobs:
           python -c "from silero_onnx.engine import main; main(['--speaker-list'])"
 
       - name: Test suite (model-dependent tests skip when models are absent)
-        run: python -m pytest tests/ -q -rs
+        run: python -m pytest tests/ -q

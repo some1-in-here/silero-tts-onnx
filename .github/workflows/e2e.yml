@@ -52,7 +52,7 @@ jobs:
         run: python scripts/check_parity.py --models models/onnx
 
       - name: Full test suite against the freshly built models (no skips)
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ -v --require-models
 
       - name: Release packaging dry-run (every MODEL_SETS artifact present)
         run: |

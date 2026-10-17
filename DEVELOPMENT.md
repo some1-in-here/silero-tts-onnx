@@ -245,13 +245,14 @@ Three GitHub Actions workflows, split by cost:
 
 | Workflow | Trigger | What it runs |
 |---|---|---|
-| `ci.yml` | every push (any branch) + pull requests | torch-free, model-free: runtime + dev extras, torch-free import and light CLI smoke checks, `pytest` — model-dependent tests skip with an explicit reason (see `tests/conftest.py`) |
-| `e2e.yml` | every push to `master` (default branch; merges included) + manual (`workflow_dispatch`; pick any branch in the Run workflow dialog) | full pipeline: build env → `export_all.py` (both model sets) → `check_models.py` (all 9 artifacts) → `check_parity.py` → full `pytest` → `package_models.py` dry-run; gate logs summarized and uploaded |
+| `ci.yml` | every push (any branch) + pull requests | torch-free, model-free: runtime + dev extras, torch-free import and light CLI smoke checks, `pytest` — model-dependent tests skip and are reported in one summary line (per-test reasons via `-rs`; see `tests/conftest.py`) |
+| `e2e.yml` | every push to `master` (default branch; merges included) + manual (`workflow_dispatch`; pick any branch in the Run workflow dialog) | full pipeline: build env → `export_all.py` (both model sets) → `check_models.py` (all 9 artifacts) → `check_parity.py` → full `pytest --require-models` → `package_models.py` dry-run; gate logs summarized and uploaded |
 | `export_and_release.yml` | `v*` tags (or manual dispatch) | same export/validate/test chain, then packages and publishes the GitHub Release (ZIP + individual models) |
 
 Model tests carry the `requires_models` (v5_ru set) or `requires_v56`
-(v5_6_ru set) marker; the E2E and release runs always have the models,
-so nothing skips there. Short per-workflow summary and the run
+(v5_6_ru set) marker; the E2E and release runs always have the models
+and pass `--require-models`, so a missing set fails the job there
+instead of skipping. Short per-workflow summary and the run
 instructions live next to the files:
 [`.github/workflows/README.md`](.github/workflows/README.md).
 

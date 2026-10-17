@@ -53,7 +53,7 @@ jobs:
         run: python scripts/check_parity.py --models models/onnx
 
       - name: "Test suite (full: freshly built models are present)"
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ -v --require-models
 
       - name: Pack all MODEL_SETS artifacts into the release ZIP
         run: |
