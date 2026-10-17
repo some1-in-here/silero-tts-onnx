@@ -1,7 +1,7 @@
 # Binaries & build outputs: models are built locally via scripts/
 # (python scripts/export_all.py) and never committed:
 # <repo>/models/onnx/ (generated .onnx + gate logs) and
-# <repo>/models/torch/ (raw upstream checkpoints). See models/README.md.
+# <repo>/models/torch/ (raw upstream checkpoints).
 models/
 # Local virtualenvs and generated audio.
 .venv-build/

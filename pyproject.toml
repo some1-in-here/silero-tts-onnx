@@ -5,14 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "silero-onnx-tts"
 version = "0.3.0"
-description = "Silero TTS v5 RU inference through ONNX Runtime (48 kHz, CPU)"
+description = "Torch-free Russian Silero TTS (v5_ru + v5_6_ru; v5_6_ru is the default) through ONNX Runtime (48 kHz, CPU)"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "CC-BY-NC-SA-4.0" }
 dependencies = [
     # NOTE: torch is intentionally NOT required at runtime: inference is
-    # 100% torch-free (frontend data + 5 ONNX sessions). Torch (+omegaconf)
-    # is needed only to (re)generate models/data, see README.
+    # 100% torch-free (frontend data + ONNX sessions: 5 for v5_ru,
+    # 6 for v5_6_ru). Torch (+omegaconf) is needed only to (re)generate
+    # models/data, see README.
     "onnxruntime>=1.17",   # acoustic + vocoder + istft + stress inference
     "numpy>=1.24",
     "soundfile>=0.12",

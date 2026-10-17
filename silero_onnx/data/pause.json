@@ -1,1 +1,1 @@
-{"comma_ids": [5, 8, 9, 44], "note": "Dumped once from the live v5_ru JIT model (MultiTTSModel.sil_value/.comma_ids/.point_id); used by the numpy fx_pauses port in engine._synthesize_breaks. Verified by the SSML parity probe.", "point_id": 7, "sil_value": -8.0}
+{"comma_ids": [5, 8, 9, 44], "note": "Dumped once from the live v5_ru JIT model (MultiTTSModel.sil_value/.comma_ids/.point_id); used by the numpy fx_pauses port in strategies/pauses.py. Verified by the SSML parity probe.", "point_id": 7, "sil_value": -8.0}

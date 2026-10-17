@@ -1,16 +1,9 @@
 name: Export ONNX and release
 
-# Release flow (from ANY branch): git tag vX.Y.Z && git push origin vX.Y.Z
-# Steps run strictly in order; any gate failure stops the chain BEFORE
-# the release step, so broken models can never be published.
 on:
   push:
     tags:
       - "v*"
-  # Manual runs from the Actions tab (debugging without pushing a tag).
-  # Give the release a name via the `version` input (e.g. v0.4.0-rc1);
-  # empty input falls back to the current ref (branch runs then create
-  # a branch-named release — pass an explicit version to avoid that).
   workflow_dispatch:
     inputs:
       version:
@@ -18,16 +11,14 @@ on:
         required: false
         default: ""
 
-# Least privilege: repo default stays read-only, release rights are
-# granted to this workflow only (needed to create the Release and
-# upload assets with GITHUB_TOKEN).
+# contents: write is needed to create the Release and upload assets.
 permissions:
   contents: write
 
 jobs:
   export-test-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -38,7 +29,7 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Cache torch.hub sources (snakers4 repo + v5_ru.pt)
+      - name: Cache torch.hub sources (snakers4 repo + checkpoints)
         uses: actions/cache@v4
         with:
           path: ~/.cache/torch/hub
@@ -52,22 +43,22 @@ jobs:
           python -m pip install -r scripts/requirements-export.txt
           python -m pip install -e ".[dev]"
 
-      - name: Export fixtures + all 5 ONNX models (L1/L2 gates)
-        run: python scripts/export_all.py
+      - name: Export fixtures + both model sets (v5_ru x5 + v5_6_ru x4; per-step gates)
+        run: python scripts/export_all.py --out-dir models/onnx
 
-      - name: Integrity check (loads, I/O names, robustness, smoke)
-        run: python scripts/check_models.py
+      - name: "Integrity check (all 9 models: loads, I/O, robustness, smoke per version)"
+        run: python scripts/check_models.py --models models/onnx
 
-      - name: Torch-vs-ONNX end-to-end parity
-        run: python scripts/check_parity.py
+      - name: Torch-vs-ONNX end-to-end parity (v5; v5_6 gates run in its export step)
+        run: python scripts/check_parity.py --models models/onnx
 
-      - name: Test suite
+      - name: "Test suite (full: freshly built models are present)"
         run: python -m pytest tests/ -v
 
-      - name: Pack models into one ZIP (flat, basenames only)
+      - name: Pack all MODEL_SETS artifacts into the release ZIP
         run: |
-          python -c "import zipfile, os; z = zipfile.ZipFile('silero_v5_russian_onnx.zip', 'w', zipfile.ZIP_DEFLATED); [z.write(os.path.join('onnx', f), f) for f in ['acoustic_v5_ru.onnx', 'vocoder_v5_ru.onnx', 'istft_48k.onnx', 'silero_stress.onnx', 'ngram_core.onnx']]"
-          ls -lh silero_v5_russian_onnx.zip onnx/*.onnx
+          python scripts/package_models.py --models models/onnx --zip models/silero_onnx_models.zip
+          ls -lh models/silero_onnx_models.zip models/onnx/*.onnx
 
       - name: Create GitHub Release with ZIP + individual models
         uses: softprops/action-gh-release@v2
@@ -76,13 +67,17 @@ jobs:
           # Manual runs: release under the chosen `version` input
           # (the tag is created if missing); tag pushes use their own tag.
           tag_name: ${{ inputs.version || github.ref_name }}
-          # Suffixed tags (v1.0.0-rc, v1.0.0-beta, ...) become
+          # Suffixed release names (v1.0.0-rc, v1.0.0-beta, ...) become
           # pre-releases automatically; plain vX.Y.Z stays latest.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(inputs.version || github.ref_name, '-') }}
           files: |
-            silero_v5_russian_onnx.zip
-            onnx/acoustic_v5_ru.onnx
-            onnx/vocoder_v5_ru.onnx
-            onnx/istft_48k.onnx
-            onnx/silero_stress.onnx
-            onnx/ngram_core.onnx
+            models/silero_onnx_models.zip
+            models/onnx/acoustic_v5_ru.onnx
+            models/onnx/vocoder_v5_ru.onnx
+            models/onnx/istft_48k.onnx
+            models/onnx/silero_stress.onnx
+            models/onnx/ngram_core.onnx
+            models/onnx/acoustic_v5_6_ru.onnx
+            models/onnx/dur_predictor_v5_6_ru.onnx
+            models/onnx/pitch_predictor_v5_6_ru.onnx
+            models/onnx/vocoder_v5_6_ru.onnx

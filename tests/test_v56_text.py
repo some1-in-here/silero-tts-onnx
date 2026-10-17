@@ -6,6 +6,7 @@ functions (parity probe: classify/spans/ti/fm exact on 12 texts incl.
 """
 import os
 import sys
+import warnings
 
 import pytest
 
@@ -37,6 +38,13 @@ def test_split_emphasis():
     assert (text, idx, has) == ("Меня зовут Ксения.", set(), False)
     with pytest.raises(ValueError):
         E.split_emphasis("Некорректная **разметка.")
+    # ** wraps a SINGLE word (upstream regex [^*\s]+): spaces inside
+    # are invalid markup and raise upstream's own message...
+    with pytest.raises(ValueError, match="эмфазы"):
+        E.split_emphasis("**Тихо говорю.**")
+    # ...while per-word ** and multi-word * spans are fine
+    text, idx, has = E.split_emphasis("**Тихо** **говорю.**")
+    assert (text, idx, has) == ("*Тихо* *говорю.*", {0, 1}, True)
 
 
 def test_extract_intensity():
@@ -44,6 +52,18 @@ def test_extract_intensity():
     assert E.extract_intensity("<intensity=1>тихо</intensity>") == ("тихо", 1)
     with pytest.raises(ValueError):
         E.extract_intensity("<intensity=9>громко</intensity>")
+    # several tags: the first wins for the whole utterance (upstream
+    # keeps intensities[0]); differing values warn instead of a silent
+    # drop, equal ones warn not at all
+    with pytest.warns(UserWarning, match="first one"):
+        assert E.extract_intensity(
+            "<intensity=1>а</intensity> <intensity=3>б</intensity>"
+        ) == ("а б", 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert E.extract_intensity(
+            "<intensity=2>а</intensity> <intensity=2>б</intensity>"
+        ) == ("а б", 2)
 
 
 def test_place_tokens():

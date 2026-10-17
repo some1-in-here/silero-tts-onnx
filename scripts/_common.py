@@ -44,8 +44,8 @@ def package_data_path(*names):
     """Repo package-data path: <repo>/silero_onnx/data/<names...>.
 
     Used by export steps that (re)generate versioned runtime tables
-    (currently speakers.json). The file stays a committed source: the
-    script logs what it did, git shows the diff, a human commits it.
+    (speakers.json, symbols.json). The file stays a committed source:
+    the script logs what it did, git shows the diff, a human commits it.
     """
     return os.path.join(ROOT, "silero_onnx", "data", *names)
 
@@ -86,6 +86,47 @@ def write_speakers_json(entries, path, log):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(want, f)
     log(f"speakers.json written ({len(want)} voices): "
+        f"{os.path.basename(path)}")
+
+
+def write_symbols_json(symbols, symbol_to_id, path, log):
+    """Write-or-validate the torch-free symbol table (no torch here).
+
+    `symbols`/`symbol_to_id` come from the hub package itself
+    (`part.symbols` / `part.symbol_to_id`) — never positional guesses.
+    Format matches the committed file exactly (`{"symbols": [...],
+    "symbol_to_id": {...}}`, UTF-8, single line, no trailing newline).
+    Rules, all loud — the same write-or-fail discipline as
+    speakers.json, and for the same reason: an upstream symbol-table
+    change is an engineer decision, not a build side effect:
+    - missing file -> write it;
+    - identical content -> log "unchanged", touch nothing;
+    - anything else -> SystemExit naming the diff.
+    """
+    import json
+
+    want = {"symbols": list(symbols), "symbol_to_id": dict(symbol_to_id)}
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            have = json.load(f)
+        if have == want:
+            log(f"symbols.json unchanged ({len(want['symbols'])} symbols)")
+            return
+        have_sym = have.get("symbols", [])
+        have_map = have.get("symbol_to_id", {})
+        added = [s for s in want["symbols"] if s not in have_sym]
+        gone = [s for s in have_sym if s not in want["symbols"]]
+        remapped = sorted(
+            k for k in set(have_map) & set(want["symbol_to_id"])
+            if have_map[k] != want["symbol_to_id"][k])
+        raise SystemExit(
+            "symbols.json mismatch: refusing to overwrite "
+            f"(added={added}, removed={gone}, remapped={remapped}). "
+            "An upstream symbol-table change is an engineer decision, "
+            "not an export side effect.")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(want, f, ensure_ascii=False)
+    log(f"symbols.json written ({len(want['symbols'])} symbols): "
         f"{os.path.basename(path)}")
 
 if SCRIPTS_DIR not in sys.path:

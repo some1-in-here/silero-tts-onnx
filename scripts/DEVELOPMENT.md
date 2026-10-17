@@ -35,8 +35,8 @@ on current stacks).
 `istft_model.py::RealISTFT` re-implements `torch.fft.irfft` + overlap-add
 + window-normalization with real tensors only (see §2). It is first
 proven against the genuine `wrapped_jit_v.istft` on a generated real
-spectrum (`onnx/fixtures/spec_ref.pt` via `make_fixtures.py`) and a
-synthetic T=9 case (`atol=1e-4`, else exit 2 without exporting), then
+spectrum (`models/onnx/fixtures/spec_ref.pt` via `make_fixtures.py`) and
+a synthetic T=9 case (`atol=1e-4`, else exit 2 without exporting), then
 dynamo-exported with dynamic T.
 
 **Stress (`export_stress.py`, classic exporter, opset 17).**
@@ -44,10 +44,11 @@ dynamo-exported with dynamic T.
 TorchScript module, which dynamo refuses — so the classic path is used
 (the natural fit for scripted graphs), with `dynamic_axes` B(1..32)/T(1..512).
 Reference: 7 real homograph windows (generated fixture
-`onnx/fixtures/stress_ref.pt` via `make_fixtures.py`). Gates: `max_abs <= 1e-4` *and*
-variant agreement — sigmoid-round must select the same homograph variant
-in torch and ORT (logit closeness alone could hide a `.5`-boundary flip),
-plus a B=3/T=13 second-shape probe through the same session.
+`models/onnx/fixtures/stress_ref.pt` via `make_fixtures.py`). Gates:
+`max_abs <= 1e-4` *and* variant agreement — sigmoid-round must select the
+same homograph variant in torch and ORT (logit closeness alone could hide
+a `.5`-boundary flip), plus a B=3/T=13 second-shape probe through the
+same session.
 
 **Ngram (`export_ngram.py`, classic exporter, opset 17).**
 `NgramCore` re-hosts the accentor's `embedding` (as `EmbeddingBag(…,16,
@@ -108,7 +109,7 @@ them breaks export or inference (each was a measured failure, not a guess):
   at 0.0 vs the sidecar layout). The runtime loads either layout, but
   the factory always ships single files.
 - **FP16 rejected.** Measured on CPU: broken loads, destroyed vocoder
-  quality, zero speedup. Graphs stay FP32 (see root DEVELOPMENT.md §5).
+  quality, zero speedup. Graphs stay FP32 (see root DEVELOPMENT.md §7).
 
 ## 3. Maintaining the exporters (upstream updates)
 

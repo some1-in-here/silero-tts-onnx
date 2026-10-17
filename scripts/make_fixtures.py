@@ -9,8 +9,13 @@ Writes <out-dir>/fixtures/ (git-ignored build output, NOT versioned):
 
 Both are *inputs* to the export gates (torch-vs-torch fidelity and
 ORT-vs-torch references), never to tests: the suite is torch-free and
-must run without them. Runs automatically as step 0 of export_all.py,
-or standalone:
+must run without them.
+
+make_spec() additionally validates the versioned runtime tables in
+silero_onnx/data/ (speakers.json, symbols.json) against the hub
+package — write-or-fail, never silent (see _common.write_*_json).
+
+Runs automatically as step 0 of export_all.py, or standalone:
 
   python scripts/make_fixtures.py [--out-dir onnx]
 """
@@ -26,7 +31,8 @@ if _V5_DIR not in sys.path:
 del _V5_DIR
 
 from _common import (DEFAULT_OUT_DIR, Logger, begin, finish, fixtures_dir,
-                     package_data_path, write_speakers_json)
+                     package_data_path, write_speakers_json,
+                     write_symbols_json)
 
 
 # Fixed sentence pool: must yield >= 7 neural (non-regex) homograph
@@ -118,6 +124,12 @@ def make_spec(log):
     entries = [(name, ids[0], mid) for name, ids, mid in entries]
     write_speakers_json(entries, package_data_path("speakers.json"),
                         log.log)
+
+    # Same write-or-fail discipline for the shared symbol table: the
+    # runtime package reads it but must never import torch to
+    # regenerate it — that one hub read lives here, in the build.
+    write_symbols_json(list(part.symbols), dict(part.symbol_to_id),
+                       package_data_path("symbols.json"), log.log)
 
     def get(root, *names):
         m = root

@@ -12,12 +12,16 @@ Nothing here imports torch (verified like the rest of `silero_onnx`);
 tensors are numpy. Deviations from upstream (documented, all loud):
 - intensity is validated to 0..3 (focus_embedding has 4 rows; upstream
   would OOB inside the embedding lookup with a cryptic error).
+- several <intensity=N> tags: the first wins for the whole utterance
+  (upstream keeps intensities[0] too), but differing values warn
+  instead of upstream's silent drop.
 - bad ** markup raises ValueError with upstream's own message.
 - SSML focus path (restore_focus_marks asserts, windowed refinement)
   is NOT ported: the engine uses full-sequence predictor gt (the
   documented operating point), so only plain-text markers are handled.
 """
 import re
+import warnings
 
 import numpy as np
 
@@ -138,8 +142,14 @@ def classify_text(text):
 def extract_intensity(text):
     """<intensity=N>...</intensity> -> (cleaned, level); default 3.
 
-    Upstream reads this only from ssml_text; the engine accepts the tags
-    in plain text too (superset — tag-free input is unaffected)."""
+    Upstream's only channel is ssml_text, where the tag is stripped
+    before XML parsing (extract_intensity_from_ssml); SSML mode here
+    does the same, and plain text accepts the tags too (superset). The
+    level scales *focus* marks only (see parse_focus_from_text): with
+    no * / ** marks it has no effect — upstream audio is identical.
+    Several tags: the first one wins for the whole utterance (upstream
+    keeps intensities[0] too), but differing values warn — upstream
+    drops the rest silently."""
     intensities = re.findall(r'<intensity=(\d+)>', text)
     cleaned = re.sub(r'<intensity=(\d+)>', '', text)
     cleaned = cleaned.replace('</intensity>', '')
@@ -148,6 +158,11 @@ def extract_intensity(text):
         raise ValueError(
             f"silero-onnx: error: intensity must be 0..3 (focus embedding "
             f"has 4 rows), got {level}")
+    if len(set(intensities)) > 1:
+        warnings.warn(
+            "silero-onnx: multiple <intensity=N> values "
+            f"({', '.join(intensities)}): upstream applies the first one "
+            f"({level}) to the whole utterance and drops the rest")
     return cleaned, level
 
 

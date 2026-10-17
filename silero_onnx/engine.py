@@ -90,31 +90,43 @@ class ColorHelpFormatter(argparse.RawDescriptionHelpFormatter):
 
 
 # Quoted payloads for examples_text(): plain strings (no f-string
-# backslash escapes) so the module parses on Python 3.10+.
+# backslash escapes) so the module parses on Python 3.10+. Every
+# payload is self-describing: the spoken text itself demonstrates or
+# narrates the feature of its example (no legend comments needed).
 _EX_00 = '"Привет! Меня зовут Ксения."'
-_EX_01 = '"Замок был открыт."'
-_EX_02 = '"З+амок был открыт."'
-_EX_03 = '"Зам+ок был открыт."'
-_EX_04 = '"Подожди... Продолжаю."'
-_EX_05 = '"Он — молодец."'
-_EX_06 = '"<speak>Сейчас будет пауза. <break time=\'500ms\'/> Вот она была.</speak>"'
-_EX_07 = '"<speak>Сейчас будет пауза. <break time=\'2s\'/> Вот она была.</speak>"'
-_EX_08 = '"<speak>Сейчас будет пауза. <break strength=\'weak\'/> Вот она была.</speak>"'
-_EX_09 = '"<speak>Первая часть. <break strength=\'x-strong\'/> Вторая часть после очень длинной паузы.</speak>"'
-_EX_10 = '"<speak>Раз. <break time=\'250ms\'/> Два. <break strength=\'strong\'/> Три.</speak>"'
-_EX_11 = '"<speak><prosody rate=\'fast\'>Я говорю быстро-быстро!</prosody> <prosody rate=\'slow\'>А теперь медленно и размеренно.</prosody>А теперь как обычно.</speak>"'
-_EX_12 = '"<speak><prosody pitch=\'high\'>Здесь я говорю высоко.</prosody> <prosody pitch=\'low\'>А здесь низко.</prosody></speak>"'
-_EX_13 = '"<speak><prosody rate=\'slow\' pitch=\'low\'>Говорю медленно и низко.</prosody></speak>"'
-_EX_14 = '"<speak><prosody rate=\'slow\'>Говорю медленно, <prosody pitch=\'high\'>а это слово высоко</prosody> и снова ровно.</prosody></speak>"'
-_EX_15 = '"<speak><s>Первое.</s><s>Второе.</s></speak>"'
-_EX_16 = '"Текст."'
-_EX_17 = '"Меня зовут **Ксения**."'
-_EX_18 = '"Меня зовут *Ксения*."'
-_EX_19 = '"<intensity=1>Тихо говорю.</intensity>"'
+_EX_01 = '"Это версия по умолчанию. Вот слово с нажимом: **важно**."'
+_EX_02 = '"Классическая версия: **звёздочки** здесь не работают."'
+_EX_03 = '"Сначала с нажимом: **важно**. Потом без нажима: важно."'
+_EX_04 = '"Сначала в фокусе: *важно*. Потом без фокуса: важно."'
+_EX_05 = '"<intensity=1>Фокус слабее: *важно*.</intensity>"'
+_EX_06 = '"<intensity=3>Фокус сильнее: *важно*.</intensity>"'
+_EX_07 = '"Так звучит этот голос."'
+_EX_08 = '"З+амок был открыт."'
+_EX_09 = '"Зам+ок был открыт."'
+_EX_10 = '"Подожди... Продолжаю."'
+_EX_11 = '"Он — молодец."'
+_EX_12 = '"<speak>Сейчас будет пауза. <break time=\'500ms\'/> Вот она была.</speak>"'
+_EX_13 = '"<speak>Сейчас будет пауза. <break time=\'2s\'/> Вот она была.</speak>"'
+_EX_14 = '"<speak>Сейчас будет пауза. <break strength=\'weak\'/> Вот она была.</speak>"'
+_EX_15 = '"<speak>Первая часть. <break strength=\'x-strong\'/> Вторая часть после очень длинной паузы.</speak>"'
+_EX_16 = '"<speak>Раз. <break time=\'250ms\'/> Два. <break strength=\'strong\'/> Три.</speak>"'
+_EX_17 = '"<speak><prosody rate=\'fast\'>Я говорю быстро-быстро!</prosody> <prosody rate=\'slow\'>А теперь медленно и размеренно.</prosody>А теперь как обычно.</speak>"'
+_EX_18 = '"<speak><prosody pitch=\'high\'>Здесь я говорю высоко.</prosody> <prosody pitch=\'low\'>А здесь низко.</prosody></speak>"'
+_EX_19 = '"<speak><prosody rate=\'slow\' pitch=\'low\'>Говорю медленно и низко.</prosody></speak>"'
+_EX_20 = '"<speak><prosody rate=\'slow\'>Говорю медленно, <prosody pitch=\'high\'>а это слово высоко</prosody> и снова ровно.</prosody></speak>"'
+_EX_21 = '"<speak><s>Это конец первого предложения.</s><s>А это начало второго.</s></speak>"'
+_EX_22 = '"Привет из указанной папки моделей!"'
 
 
 def examples_text():
-    """Structured, color-aware usage examples (see --examples)."""
+    """Structured, color-aware usage examples (see --examples).
+
+    Self-describing by policy: each payload's own words demonstrate or
+    narrate the feature it exercises, and the output file name repeats
+    the feature — a copied command is understood without trailing
+    '# ...' legends. Cross-version caveats live in section headers and
+    NOTE lines, never per-example comments.
+    """
     c = _use_color()
 
     def H(s):  # yellow: section headers
@@ -126,10 +138,10 @@ def examples_text():
     def Q(s):  # cyan: quoted text
         return f"\033[36m{s}\033[0m" if c else s
 
-    def G(s):  # gray: comments
+    def G(s):  # gray: group labels
         return f"\033[90m{s}\033[0m" if c else s
 
-    def W(s):  # red: warnings
+    def W(s):  # red: notes
         return f"\033[31m{s}\033[0m" if c else s
 
     return "\n".join([
@@ -138,80 +150,83 @@ def examples_text():
         f"{F('-o')} out.wav",
         "",
         H("🎯 Versions (default is v5_6_ru)"),
-        f"  silero-onnx {Q(_EX_00)} {F('-o')} out.wav "
-        f"{G('# v5_6_ru: emphasis markers, no SSML')}",
-        f"  silero-onnx {F('--model-version')} v5_ru {Q(_EX_00)} "
-        f"{F('-o')} out5.wav {G('# classic pipeline: SSML works here')}",
-        f"  silero-onnx {F('--model-list')} "
-        f"{G('# show available versions (needs no models)')}",
+        f"  silero-onnx {Q(_EX_01)} "
+        f"{F('-o')} v56.wav",
+        f"  silero-onnx {F('--model-version')} v5_ru {Q(_EX_02)} "
+        f"{F('-o')} v5.wav",
+        f"  silero-onnx {F('--model-list')}",
         "",
-        H("✨ Emphasis (v5_6_ru only: **, *, <intensity>)"),
-        f"  silero-onnx {Q(_EX_17)} {F('-o')} emph.wav "
-        f"{G('# **word**: emphasized')}",
-        f"  silero-onnx {Q(_EX_18)} {F('-o')} focus.wav "
-        f"{G('# *word*: focused')}",
-        f"  silero-onnx {Q(_EX_19)} {F('-o')} quiet.wav "
-        f"{G('# <intensity=0..3>: focus strength, default 3')}",
+        H("✨ Emphasis (v5_6_ru only: **word** emphasized, *word* "
+          "focused, <intensity=0..3> strength)"),
+        f"  silero-onnx {Q(_EX_03)} "
+        f"{F('-o')} emph.wav",
+        f"  silero-onnx {Q(_EX_04)} "
+        f"{F('-o')} focus.wav",
+        f"  silero-onnx {Q(_EX_05)} "
+        f"{F('-o')} focus1.wav",
+        f"  silero-onnx {Q(_EX_06)} "
+        f"{F('-o')} focus3.wav",
         "",
         H("🎙️ Voices"),
-        f"  silero-onnx {F('--speaker-list')} "
-        f"{G('# show voices (needs no models)')}",
-        f"  silero-onnx {Q(_EX_01)} {F('-o')} castle.wav "
-        f"{F('--speaker')} baya",
+        f"  silero-onnx {F('--speaker-list')}",
+        f"  silero-onnx {Q(_EX_07)} "
+        f"{F('-o')} voice-baya.wav {F('--speaker')} baya",
         "",
         H("✍️ Stress marks (+) go BEFORE the stressed vowel and win"),
-        f"  {G('# castle vs lock: з+амок / зам+ок (system convention, see homodict)')}",
-        f"  silero-onnx {Q(_EX_02)} {F('-o')} castle1.wav "
-        f"{F('--speaker')} baya",
-        f"  silero-onnx {Q(_EX_03)} {F('-o')} castle2.wav "
-        f"{F('--speaker')} baya",
+        f"  silero-onnx {Q(_EX_08)} "
+        f"{F('-o')} castle.wav {F('--speaker')} baya",
+        f"  silero-onnx {Q(_EX_09)} "
+        f"{F('-o')} lock.wav {F('--speaker')} baya",
         "",
-        H("⏱️ Punctuation shapes delivery (measured, not decorative)"),
-        f"  silero-onnx {Q(_EX_04)} {F('-o')} dots.wav "
-        f"{G('# ... resculpts phrasing')}",
-        f"  silero-onnx {Q(_EX_05)} {F('-o')} dash.wav "
-        f"{G('# em-dash adds a beat')}",
+        H("⏱️ Punctuation shapes delivery (measured, not decorative: "
+          "'...' resculpts phrasing, '—' adds a beat)"),
+        f"  silero-onnx {Q(_EX_10)} "
+        f"{F('-o')} dots.wav",
+        f"  silero-onnx {Q(_EX_11)} "
+        f"{F('-o')} dash.wav",
         "",
-        H("⚡ SSML (v5_ru only; needs --ssml; <speak> root is mandatory)"),
+        H("⚡ SSML (both versions; needs --ssml; <speak> root is mandatory)"),
         f"  {G('<break> — exact pauses (ms, whole seconds, strength):')}",
         f"  silero-onnx {F('--ssml')} "
-        f"{Q(_EX_06)} "
-        f"{F('-o')} br.wav",
-        f"  silero-onnx {F('--ssml')} "
-        f"{Q(_EX_07)} "
-        f"{F('-o')} br2.wav",
-        f"  silero-onnx {F('--ssml')} "
-        f"{Q(_EX_08)} "
-        f"{F('-o')} br3.wav",
-        f"  silero-onnx {F('--ssml')} "
-        f"{Q(_EX_09)} "
-        f"{F('-o')} br4.wav",
-        f"  silero-onnx {F('--ssml')} "
-        f"{Q(_EX_10)} "
-        f"{F('-o')} br5.wav",
-        f"  {G('<prosody> — the speech announces itself:')}",
-        f"  silero-onnx {F('--ssml')} "
-        f"{Q(_EX_11)} "
-        f"{F('-o')} pr.wav",
-        f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_12)} "
-        f"{F('-o')} pi.wav",
+        f"{F('-o')} pause-500ms.wav",
         f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_13)} "
-        f"{F('-o')} pi2.wav",
+        f"{F('-o')} pause-2s.wav",
         f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_14)} "
-        f"{F('-o')} pi3.wav {G('# nested prosody')}",
-        f"  {G('<p> and <s> — paragraph/sentence breaks (x-strong/strong):')}",
+        f"{F('-o')} pause-weak.wav",
         f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_15)} "
-        f"{F('-o')} ps.wav",
+        f"{F('-o')} pause-x-strong.wav",
+        f"  silero-onnx {F('--ssml')} "
+        f"{Q(_EX_16)} "
+        f"{F('-o')} pause-mixed.wav",
+        f"  {G('<prosody> — the speech announces itself:')}",
+        f"  silero-onnx {F('--ssml')} "
+        f"{Q(_EX_17)} "
+        f"{F('-o')} rate.wav",
+        f"  silero-onnx {F('--model-version')} v5_ru {F('--ssml')} "
+        f"{Q(_EX_18)} "
+        f"{F('-o')} pitch.wav",
+        f"  silero-onnx {F('--model-version')} v5_ru {F('--ssml')} "
+        f"{Q(_EX_19)} "
+        f"{F('-o')} slow-low.wav",
+        f"  silero-onnx {F('--model-version')} v5_ru {F('--ssml')} "
+        f"{Q(_EX_20)} "
+        f"{F('-o')} nested.wav",
+        f"  {G('<p> and <s> — paragraph/sentence breaks (x-strong/strong):')}",
+        f"  silero-onnx {F('--ssml')} "
+        f"{Q(_EX_21)} "
+        f"{F('-o')} sentences.wav",
         W("  NOTE: without --ssml, tags are plain text — <break .../> gets "
           "vocalized (numbers inside expand), it never pauses."),
+        W("  NOTE: <prosody pitch> works on v5_ru only — v5_6_ru warns "
+          "and keeps its own intonation."),
         "",
         H("📁 Custom models"),
         f"  silero-onnx {F('--models-dir')} D:\\models\\silero\\onnx "
-        f"{Q(_EX_16)} {F('-o')} out.wav",
+        f"{Q(_EX_22)} {F('-o')} models-dir.wav",
     ])
 
 
@@ -238,16 +253,17 @@ def main(argv=None):
                       help="dir with the self-contained .onnx model files")
     ap.add_argument("--model-version", metavar="VERSION",
                       default=DEFAULT_VERSION, choices=sorted(VERSIONS),
-                      help=f"model set version: v5_ru (SSML-capable classic) "
-                           f"or v5_6_ru (emphasis markers; default "
-                           f"{DEFAULT_VERSION})")
+                      help=f"model set version: v5_6_ru (emphasis markers; "
+                           f"default {DEFAULT_VERSION}) or v5_ru (classic "
+                           f"pipeline); both do SSML (prosody pitch is "
+                           f"v5_ru only)")
     ap.add_argument("--speaker-list", action="store_true",
                       help="list voices and exit (no models needed)")
     ap.add_argument("--model-list", action="store_true",
                       help="list model versions and exit (no models needed)")
     ap.add_argument("--ssml", action="store_true",
                       help="parse text as SSML (<speak>, break/prosody/p/s; "
-                           "v5_ru only)")
+                           "prosody pitch works on v5_ru only)")
     ap.add_argument("--examples", action="store_true",
                       help="print usage examples and exit")
     a = ap.parse_args(argv)

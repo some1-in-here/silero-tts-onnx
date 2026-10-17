@@ -6,10 +6,14 @@ Faithful port of the upstream v5 package parsing (process_ssml*):
 {"text", "rate", "pitch", "break_ms" or None}.
 
 Downstream split (by design, mirrors upstream dataflow):
-- prosody rate/pitch become per-token durs_rate/pitch_coefs arrays
-  (the acoustic graph already takes them; no graph changes);
-- breaks become (token_pos, frames) plans applied by the engine
-  two-pass path (the graph has no symb_durs input).
+- <prosody rate> becomes a per-token durs_rate array (the acoustic graph
+  already takes it; no graph changes); <prosody pitch> needs a
+  pitch_coefs input that only the v5_ru acoustic graph has — v5_6_ru
+  warns and ignores it (its pitch comes from the predictor instead;
+  never a silent drop);
+- <break> becomes a (token_pos, frames) plan applied by the shared
+  two-pass path in strategies/pauses.py (the graphs have no symb_durs
+  input).
 
 Deliberate deviations from upstream (all documented, none silent):
 - per-segment text goes through OUR normalize() (abbr/numbers/case),

@@ -1,6 +1,7 @@
 # scripts/ — one-off ONNX export (build-time only)
 
-This folder produces the five binary assets the runtime needs. It is
+This folder produces the nine binary assets the runtime needs (five for
+`v5_ru`, four more for `v5_6_ru`). It is
 **dormant after the first successful build**: daily work (inference,
 tests) never touches it — only `silero_onnx/` + `models/onnx/` matter.
 
@@ -23,7 +24,7 @@ pip install -r scripts/requirements-export.txt
 # Remove-Item Env:PYTHONUTF8
 $env:PYTHONUTF8 = '1'               # export PYTHONUTF8=1 on POSIX
 python scripts/export_all.py        # ~minutes, downloads sources on 1st run
-python scripts/check_models.py      # must end with "all 5 models + smoke test passed"
+python scripts/check_models.py      # must end with "all 9 models + smoke tests (v5_ru + v5_6_ru) passed"
 ```
 
 That is the whole procedure: `models/onnx/` is now populated and `scripts/`
@@ -34,16 +35,17 @@ expected sizes, gate policy) are below.
 
 | Script | Produces | Source |
 |---|---|---|
-| `strategies/v5/export_acoustic.py` | `acoustic_v5_ru.onnx` + `.data` | v5 Tacotron side transplanted into `acoustic.py` (via `build_acoustic.py`, 224 tensors), dynamo exporter, opset 18 |
+| `strategies/v5/export_acoustic.py` | `acoustic_v5_ru.onnx` | v5 Tacotron side transplanted into `acoustic.py` (via `build_acoustic.py`, 224 tensors), dynamo exporter, opset 18 |
 | `strategies/v5/export_vocoder.py` | `vocoder_v5_ru.onnx` | v5 vocoder submodule (`VocWrap`: mel → mag/x/y), `jit.trace` + classic exporter, opset 17 |
-| `strategies/v5/export_istft.py` | `istft_48k.onnx` + `.data` | `istft_model.py` (real-valued ISTFT port), dynamo exporter, opset 18 |
+| `strategies/v5/export_istft.py` | `istft_48k.onnx` | `istft_model.py` (real-valued ISTFT port), dynamo exporter, opset 18 |
 | `strategies/v5/export_stress.py` | `silero_stress.onnx` | `silero_stress` homosolver BERT-tiny (TorchScript upstream → classic exporter, opset 17), dynamic B+T |
 | `strategies/v5/export_ngram.py` | `ngram_core.onnx` | `silero_stress` EmbeddingBag + 2 MLP heads, `jit.trace` + classic exporter, opset 17 |
 | `export_all.py` | v5 (5 models) + v5_6 (4 models) + fixtures, in order | orchestrator: make_fixtures, then `strategies/v5/export.py`, then `strategies/v5_6/export.py`; stops at first failure |
-| `make_fixtures.py` | `models/onnx/fixtures/{stress_ref,spec_ref}.pt` | deterministic build inputs: 7 homo windows (vendored tokenizer, torch-free) + real spectrum (torch pipeline, fixed text) |
-| `check_models.py` | — | integrity check of `models/onnx/` (names, ORT load, multi-shape robustness, smoke synth) |
+| `make_fixtures.py` | `models/onnx/fixtures/{stress_ref,spec_ref}.pt` | deterministic build inputs: 7 homo windows (vendored tokenizer, torch-free) + real spectrum (torch pipeline, fixed text); also validates the runtime tables (`speakers.json`, `symbols.json`) against the hub package (write-or-fail) |
+| `check_models.py` | — | integrity check of `models/onnx/` for BOTH model sets (all 9 artifacts: I/O names, ORT load, multi-shape robustness, smoke synth per version; coverage enforced against `MODEL_SETS`) |
 | `check_parity.py` | — | end-to-end torch-chain vs ONNX-chain parity (build env only; the `tests/`-forbidden twin of the L1 gates) |
-| `_common.py` | — | shared repo-root/out-dir resolution, checker+ORT gates, `.data` externalization |
+| `package_models.py` | release ZIP | file list derived from `MODEL_SETS`; a missing artifact aborts before anything is written (used by the release + E2E workflows) |
+| `_common.py` | — | shared repo-root/out-dir resolution, checker+ORT gates, external-data inlining (single-file models) |
 | `strategies/v5/{acoustic,build_acoustic,encoder,decoder,fftblock,slowmha,predictors,istft_model,layernorm}.py` | — | clean v5 torch ports (mirrors of upstream modules)
 | `strategies/v5_6/{export,build,series,forward,vocoder}.py` | — | clean-room v5_6 ports + transplant + L0/L1/L2/e2e gates (reuses v5 blocks, never duplicates) (mirrors of upstream modules; `istft_model.py` is `istft.py` renamed to not clash with `export_istft.py`; `layernorm.py` is an export-safe `LayerNorm` spelling, see `scripts/DEVELOPMENT.md` §2) |
 
@@ -83,7 +85,7 @@ Run from the **repo root** (`silero/`):
 cd silero
 python scripts/export_all.py              # fixtures + v5 (5 models) + v5_6 (4 models) into models/onnx/
 # — or step by step —
-python scripts/make_fixtures.py           # models/onnx/fixtures/*.pt (generated refs)
+python scripts/make_fixtures.py           # fixtures refs + speakers/symbols.json validation
 python scripts/strategies/v5/export.py    # all 5 v5_ru models (acoustic/vocoder/istft/stress/ngram)
 python scripts/strategies/v5_6/export.py  # all 4 v5_6_ru models (acoustic/dur/pitch/vocoder)
 python scripts/check_models.py            # integrity + ORT smoke test
@@ -96,15 +98,19 @@ python scripts/export_all.py --out-dir D:\models\silero\onnx
 set SILERO_ONNX_MODELS=D:\models\silero\onnx
 ```
 
-Expected result in `models/onnx/` (~290 MB total, single files, no sidecars):
+Expected result in `models/onnx/` (~470 MB total, single files, no sidecars):
 
 ```
-acoustic_v5_ru.onnx                  ~31 MB
-vocoder_v5_ru.onnx                   ~58 MB
-istft_48k.onnx                       ~92 MB
-silero_stress.onnx                   ~117 MB
+acoustic_v5_ru.onnx                  ~30 MB
+vocoder_v5_ru.onnx                   ~56 MB
+istft_48k.onnx                       ~88 MB
+silero_stress.onnx                   ~112 MB
 ngram_core.onnx                      ~8 MB
-export_*_result.txt                  per-step gate logs
+acoustic_v5_6_ru.onnx                ~25 MB
+dur_predictor_v5_6_ru.onnx           ~2.4 MB
+pitch_predictor_v5_6_ru.onnx         ~2.4 MB
+vocoder_v5_6_ru.onnx                 ~144 MB
+*_result.txt                         per-step gate logs
 ```
 
 Notes:
@@ -122,7 +128,7 @@ Notes:
 
 ## v5_6 track (isolated)
 
-The `v5_6_ru` model set lives in `scripts/v5_6/` and never touches the
+The `v5_6_ru` model set lives in `scripts/strategies/v5_6/` and never touches the
 v5 exporters above (shared `_common.py` helpers excepted). File names
 come from `silero_onnx.versions.MODEL_SETS["v5_6_ru"]`:
 

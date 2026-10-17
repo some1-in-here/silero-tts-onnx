@@ -136,20 +136,6 @@ def normalize(text: str) -> str:
     return expand_numbers(expand_abbreviations(text))
 
 
-def build_symbol_table():
-    """Return (symbols, symbol_to_id) exactly as v5_ru.pt uses them.
-
-    Needs torch + the hub model once (reads the live tables, no guessing).
-    """
-    import torch
-    torch._C._jit_set_profiling_mode(False)
-    model, _ = torch.hub.load(repo_or_dir="snakers4/silero-models",
-                               model="silero_tts", language="ru",
-                               speaker="v5_ru", trust_repo=True)
-    part = model.packages[0]
-    return list(part.symbols), dict(part.symbol_to_id)
-
-
 def tokenize(text: str, symbol_to_id, sos_token="|", eos_token="~",
              add_sos_eos=False, errors="raise") -> list:
     """Map cleaned+stressed text to symbol ids.
@@ -188,7 +174,12 @@ def prepare(text: str, symbol_to_id, stress=True):
 
 
 def load_symbol_table(data_dir=DATA_DIR):
-    """Torch-free symbol table (dumped once from the live model)."""
+    """Torch-free symbol table (dumped + validated by the build).
+
+    The one torch-side hub read lives in scripts/make_fixtures.py
+    (write-or-fail against the committed table); the runtime never
+    imports torch.
+    """
     import json
     with open(os.path.join(data_dir, "symbols.json"), encoding="utf-8") as f:
         d = json.load(f)
@@ -259,7 +250,8 @@ class TorchFreeFrontend:
 
     def prepare_ssml(self, ssml_text, speaker="xenia"):
         """SSML -> (feeds, breaks): per-token rate/pitch arrays plus
-        [(token_pos, frames)] pause plans for the engine two-pass path.
+        [(token_pos, frames)] pause plans for the shared two-pass path
+        (strategies/pauses.py).
 
         Segments are normalized with OUR normalize(), jointly stressed
         (cross-segment context, mirroring upstream word-count re-split),

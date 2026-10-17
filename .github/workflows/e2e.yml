@@ -1,0 +1,100 @@
+name: Full E2E (export + validate + test)
+
+on:
+  # Full pipeline on every merge/push to the default branch.
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out the selected branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Cache torch.hub sources (snakers4 repo + checkpoints)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch/hub
+          key: torch-hub-snakers4-v1
+          restore-keys: |
+            torch-hub-snakers4-
+
+      - name: Install build env (CPU torch + export stack) and dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/requirements-export.txt
+          python -m pip install -e ".[dev]"
+
+      - name: Export fixtures + both model sets (v5_ru x5 + v5_6_ru x4)
+        run: python scripts/export_all.py --out-dir models/onnx
+
+      - name: Validate all models (loads, I/O, robustness, smoke per version)
+        run: python scripts/check_models.py --models models/onnx
+
+      - name: Torch-vs-ONNX end-to-end parity (v5; v5_6 gates run in its export step)
+        run: python scripts/check_parity.py --models models/onnx
+
+      - name: Full test suite against the freshly built models (no skips)
+        run: python -m pytest tests/ -v
+
+      - name: Release packaging dry-run (every MODEL_SETS artifact present)
+        run: |
+          python scripts/package_models.py --models models/onnx --zip models/silero_onnx_models.zip
+          ls -lh models/silero_onnx_models.zip
+
+      - name: Summarize export gate logs
+        if: always()
+        run: |
+          python - <<'PY'
+          import glob, os, sys
+
+          paths = sorted(glob.glob("models/onnx/*_result.txt"))
+          lines = ["## E2E export gates", ""]
+          bad = []
+          for p in paths:
+              with open(p, encoding="utf-8", errors="replace") as f:
+                  results = [ln.strip() for ln in f
+                             if ln.startswith("RESULT")]
+              ok = bool(results) and all("PASS" in ln for ln in results)
+              lines.append("- `%s`: %s" % (os.path.basename(p),
+                                           "PASS" if ok else "FAIL"))
+              if not ok:
+                  bad.append(p)
+                  for ln in (results or ["(no RESULT line: step died early)"]):
+                      print("::error file=%s::%s" % (p, ln))
+          if not paths:
+              lines.append("- no *_result.txt logs found "
+                           "(did the export step run?)")
+          text = "\n".join(lines)
+          print(text)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as f:
+                  f.write(text + "\n")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Upload export gate logs (also on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-result-logs
+          path: models/onnx/*_result.txt
+          if-no-files-found: warn
