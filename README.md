@@ -111,6 +111,10 @@ automatically.
 No prebuilt release for your case? Build the models once:
 [`scripts/README.md`](scripts/README.md).
 
+For the separate fixed-voice English, Western European, Indic, Cyrillic and
+multilingual checkpoint path, see [multilingual usage and limitations](docs/multilingual.md).
+It does not change the Russian CLI defaults.
+
 ## Usage
 
 Two interfaces, one engine. Select the model version with

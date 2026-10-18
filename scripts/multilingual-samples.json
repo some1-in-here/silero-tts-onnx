@@ -1,0 +1,184 @@
+{
+  "abq": {
+    "text": "Ажва пшдза ащтанчӏв агӏвара йгӏатнадитӏ.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "ady": {
+    "text": "Бзэгур гум итэлмащ.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "ava": {
+    "text": "Мискинлъи рогьо гуро, бечелъи гьунар гуро.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "che": {
+    "text": "Даймохк — ялсамане, нехан мохк — жоьжахате.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "darg": {
+    "text": "Гӏяхӏдеш хъумхӏерту, вайдеш биалли гьатӏира хъумхӏерту.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "inh": {
+    "text": "Гӏомара тӏа гӏала оттаяьяц.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "kbd": {
+    "text": "Сэ уиӀуанэ уашъхъэри унагъуэхэри сэбэп хъущтыр сыту щӀэлъэӀу.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "krc": {
+    "text": "Сейир-тамаша затла дунияда кёпдюле.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "lbe": {
+    "text": "Хъамаличу уккан айсса аьдат дакъассар.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "lez": {
+    "text": "Бахтунин рехъ яргъи жеда, уьмуьр — куьруь.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "oss": {
+    "text": "Уыдӕттыл куы ахъуыды кӕнын, уӕд фырадӕргӕй, цы фӕуон, уый нал фӕзонын.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "tab": {
+    "text": "Девлетлуйин даттлира муртйир ахьур.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "aze": {
+    "text": "Mən hər səhər erkən qalxıb təzə hava ilə məşq edirəm.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "bak": {
+    "text": "Күп балалыларға былайҙа сертификат бирелә бит.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "bel": {
+    "text": "В+ечарам +я любл+ю чыт+аць цік+авыя кн+ігі пры святл+е начнік+а.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "chv": {
+    "text": "Эпĕ ача чухнех пиччĕшсемпе юнашар кĕтӳльех вăйă вылянă.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "erz": {
+    "text": "Монь веленек шачемсёномань панжовксонть кис эрьва кизонь туема.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "hye": {
+    "text": "Ես շաբաթ օրերին սիրում եմ երկար զբոսնել անտառով:",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "kat": {
+    "text": "მე ძალიან მიყვარს ჩემი ოჯახის წევრებთან ერთად დროის გატარება.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "kaz": {
+    "text": "Мен балалық шақта жаңа досдармен танысуды әбден ұнататынмын.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "kir": {
+    "text": "Мен мектепте окуп жүргөндө эң жакшы досум менен тааныштым.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "kjh": {
+    "text": "Мин аал чоньчарға пастабахсынар хайдиғырам хынаңның хоный.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "mdf": {
+    "text": "Монь тяштеть эзда кизонь карьхть сельметь кштинь аф лац.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "sah": {
+    "text": "Барыта туох эрэ таабырыннаах, киһи өйүгэр баппат.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_turkic_caucasian.ipynb"
+  },
+  "tat": {
+    "text": "Мин ерак түгел урман эчендә чиста һавада йөргәне яратам.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "tgk": {
+    "text": "Ман дар бораи хонаи нави худ дар канори дарё хондем.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "udm": {
+    "text": "Мон ашалэ тӥлед нуналлы огы быдэсэ кошко учке.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "ukr": {
+    "text": "+Я з р+аннього дит+инства д+уже любл+ю сл+ухати цік+аві к+азки.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "uzb": {
+    "text": "Мен болалигимда кўпинча дўстларим билан ҳовлида футбол ўйнардим.",
+    "source": "Official examples_tts_cis.ipynb, sample_texts uzb_cyr; use Cyrillic across these tests"
+  },
+  "xal": {
+    "text": "Би эцкд сарин җилин дуулҗана хойр седклтә күрәм.",
+    "source": "https://github.com/snakers4/silero-models/blob/master/examples_tts_cis.ipynb"
+  },
+  "ru": {
+    "text": "Откройте меню настроек и выберите нужный голос.",
+    "source": "Sonata controlled navigation test"
+  },
+  "de": {
+    "text": "Öffnen Sie das Einstellungsmenü und wählen Sie eine andere Stimme. Sie können mit der Tastatur zwischen Zeichen, Wörtern und Zeilen wechseln.",
+    "source": "Machine-authored German screen-reader test; not native reviewed"
+  },
+  "es": {
+    "text": "Abra el menú de configuración y seleccione otra voz. Puede usar el teclado para moverse entre caracteres, palabras y líneas.",
+    "source": "Machine-authored Spanish screen-reader test; not native reviewed"
+  },
+  "fr": {
+    "text": "Ouvrez le menu des paramètres et choisissez une autre voix. Vous pouvez utiliser le clavier pour vous déplacer entre les caractères, les mots et les lignes.",
+    "source": "Machine-authored French screen-reader test; not native reviewed"
+  },
+  "hindi": {
+    "text": "prasidda kabīra adhyētā, puruṣōttama agravāla kā yaha śōdha ālēkha, usa rāmānaṁda kī khōja karatā hai",
+    "asr_reference": "प्रसिद्द कबीर अध्येता, पुरुषोत्तम अग्रवाल का यह शोध आलेख, उस रामानंद की खोज करता है",
+    "source": "Official README Hindi example",
+    "romanization": "aksharamukha 2.3, Devanagari to ISO"
+  },
+  "bengali": {
+    "text": "ēṭi ēkaṭi parīkṣā. āpani kampiuṭārē lēkhā paṛatē pārēna.",
+    "asr_reference": "এটি একটি পরীক্ষা। আপনি কম্পিউটারে লেখা পড়তে পারেন।",
+    "source": "Machine-authored test text; not native reviewed",
+    "romanization": "aksharamukha 2.3, Bengali to ISO"
+  },
+  "gujarati": {
+    "text": "ā ēka parīkṣaṇa chē. tamē kampyuṭara paranuṁ lakhāṇa vāṁcī śakō chō.",
+    "asr_reference": "આ એક પરીક્ષણ છે. તમે કમ્પ્યુટર પરનું લખાણ વાંચી શકો છો.",
+    "source": "Machine-authored test text; not native reviewed",
+    "romanization": "aksharamukha 2.3, Gujarati to ISO"
+  },
+  "kannada": {
+    "text": "idu oṁdu parīkṣe. nīvu kaṁpyūṭarina paṭhyavannu ōdabahudu.",
+    "asr_reference": "ಇದು ಒಂದು ಪರೀಕ್ಷೆ. ನೀವು ಕಂಪ್ಯೂಟರಿನ ಪಠ್ಯವನ್ನು ಓದಬಹುದು.",
+    "source": "Machine-authored test text; not native reviewed",
+    "romanization": "aksharamukha 2.3, Kannada to ISO"
+  },
+  "malayalam": {
+    "text": "it oru parīkṣaṇamāṇ. niṅṅaḷkk kampyūṭṭaṟile vācakaṁ vāyikkāṁ.",
+    "asr_reference": "ഇത് ഒരു പരീക്ഷണമാണ്. നിങ്ങൾക്ക് കമ്പ്യൂട്ടറിലെ വാചകം വായിക്കാം.",
+    "source": "Machine-authored test text; not native reviewed",
+    "romanization": "aksharamukha 2.3, Malayalam to ISO"
+  },
+  "tamil": {
+    "text": "idu oru sōdanai. kaṇiniyil uḷḷa uraiyai nīṅgaḷ paḍikkalām.",
+    "asr_reference": "இது ஒரு சோதனை. கணினியில் உள்ள உரையை நீங்கள் படிக்கலாம்.",
+    "source": "Machine-authored test text; not native reviewed",
+    "romanization": "aksharamukha 2.3, Tamil to ISO"
+  },
+  "telugu": {
+    "text": "idi oka parīkṣa. mīru kaṁpyūṭarlōni pāṭhānni cadavavaccu.",
+    "asr_reference": "ఇది ఒక పరీక్ష. మీరు కంప్యూటర్‌లోని పాఠాన్ని చదవవచ్చు.",
+    "source": "Machine-authored test text; not native reviewed",
+    "romanization": "aksharamukha 2.3, Telugu to ISO"
+  },
+  "en": {
+    "text": "Open the settings menu and choose a different voice. You can move between characters, words, and lines using the keyboard.",
+    "source": "English screen-reader test authored for this contribution; not a quotation."
+  }
+}

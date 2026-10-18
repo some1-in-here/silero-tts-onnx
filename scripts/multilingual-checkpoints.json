@@ -1,0 +1,62 @@
+{
+  "v5_turkic": {
+    "url": "https://models.silero.ai/models/tts/ru/v5_turkic.pt",
+    "sha256": "891b83d0e0952a72595df3719b76deff9461df2528a8bd226b14ba9da070315a",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v5_caucasian": {
+    "url": "https://models.silero.ai/models/tts/ru/v5_caucasian.pt",
+    "sha256": "c4f4de6c50efc0a0fb71e317ab3a2fbe315aa7e0347410ff28ce25f02b9d3551",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v5_cis_base_nostress": {
+    "url": "https://models.silero.ai/models/tts/ru/v5_cis_base_nostress.pt",
+    "sha256": "0405777e332906f0644e08a680f7cfdc2137ea864090079c1fdd30a43c1b8761",
+    "license": "MIT",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE_CIS"
+  },
+  "v5_cis_ext": {
+    "url": "https://models.silero.ai/models/tts/ru/v5_cis_ext.pt",
+    "sha256": "e8185323fc5a341c229f8a8c9928512f665bf2736021bc600512499d0506eed2",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v4_indic": {
+    "url": "https://models.silero.ai/models/tts/indic/v4_indic.pt",
+    "sha256": "8c0d0055340a9789a7ff8e5f7610bbc8d82355e577e483acb8a1fe4f2df0caa6",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v4_cyrillic": {
+    "url": "https://models.silero.ai/models/tts/cyr/v4_cyrillic.pt",
+    "sha256": "5e3862319e13883ea105cd4db835273c7febde62ff82d98d1ccf596607f8673f",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v3_de": {
+    "url": "https://models.silero.ai/models/tts/de/v3_de.pt",
+    "sha256": "2e22f38619e1d1da96d963bda5fab6d53843e8837438cb5a45dc376882b0354b",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v3_es": {
+    "url": "https://models.silero.ai/models/tts/es/v3_es.pt",
+    "sha256": "36206add75fb89d0be16d5ce306ba7a896c6fa88bab7e3247403f4f4a520eced",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v3_fr": {
+    "url": "https://models.silero.ai/models/tts/fr/v3_fr.pt",
+    "sha256": "02ed062cfff1c7097324929ca05c455a25d4f610fd14d51b89483126e50f15cb",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  },
+  "v3_en": {
+    "url": "https://models.silero.ai/models/tts/en/v3_en.pt",
+    "sha256": "02b71034d9f13bc4001195017bac9db1c6bb6115e03fea52983e8abcff13b665",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_url": "https://github.com/snakers4/silero-models/blob/master/LICENSE"
+  }
+}
