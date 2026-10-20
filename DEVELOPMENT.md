@@ -35,15 +35,19 @@ istft_48k.onnx             # (mag,x,y) -> waveform; complex math is real-valued
 WAV 48 kHz mono float32 (soundfile)
 ```
 
-All nine `.onnx` files (v5_ru ×5 + v5_6_ru ×4; `silero_stress` and
-`ngram_core` are shared) run in shared `onnxruntime` CPU sessions owned by
-`SileroTTS`. The only torch-dependent step in the whole system is *producing*
-the models (one-off export via `scripts/`, see `scripts/README.md`).
+The runtime has nine unique `.onnx` files: the v5_ru set has 5 entries,
+the v5_6_ru set has 6 (4 own + the same 2 shared `silero_stress` /
+`ngram_core`). They are opened through the shared `ort.py` session factory;
+each `TTSEngine` owns the subset for its selected version and is exposed
+through the `SileroTTS` facade. The runtime itself has no torch-dependent
+step; producing and validating the models is a one-off build task via
+`scripts/` (see `scripts/README.md`).
 
-`v5_6_ru` (the default) shares the frontend but replaces the tail: predictor
-sessions feed durs/pitch into `acoustic_v5_6_ru.onnx`, and the fused
-`vocoder_v5_6_ru.onnx` maps mel straight to audio (no istft step). The
-diagram above shows the v5_ru route.
+`v5_6_ru` (the default) shares the frontend but replaces the tail:
+predictor sessions feed durs/pitch plus the SSML `pitch_coefs` into
+`acoustic_v5_6_ru.onnx`, and the fused `vocoder_v5_6_ru.onnx` maps mel
+straight to audio (no istft step). The diagram above shows the v5_ru
+route.
 
 ## 2. Architecture decisions
 
@@ -51,117 +55,158 @@ diagram above shows the v5_ru route.
   enforced by import assertions in each test file plus a static AST scan
   of the package (`tests/test_production.py`). Rationale: small
   install, no 2 GB dependency, embeddable deployments.
+- **Layered factories, injected dependencies.** `EngineFactory` resolves
+  `(language_id, version_id)` through `LanguageRegistry`/`ModelRegistry`,
+  then injects the language into the frontend and the frontend/sessions/
+  version into the strategy. Adding a language or a model version is a
+  new class/spec + registration entry, not an edit to existing classes.
+- **Explicit capability gates.** A language declares `requires_stress`;
+  a version declares `supports_stress`/`supports_ssml`/`supports_pitch`/
+  `supports_questions`.
+  Incompatible pairs fail in `EngineFactory` before model I/O; per-call
+  `ssml=True` on a non-SSML version raises `ValueError`; a no-stress
+  version receives a zero focus mask and its language's `apply_stress`
+  is a no-op. No silent `AttributeError`/`KeyError` at inference time.
 - **Static data ships in the wheel.** `silero_onnx/data/*.json` (homodict,
   phrases, tokenizer vocab, ngrams, exceptions, symbols, speakers, stress
-  config) is declared as setuptools `package-data` and verified inside the
-  built wheel. Nothing is downloaded at runtime.
+  config) is declared as setuptools `package-data`, so it is included in
+  an installed wheel/package; nothing is downloaded at runtime.
 - **Generated artifacts go to the user cache.** The BERT tokenizer directory
   (`vocab.txt` + maps, reconstructed from `tokenizer.json`) is written to
   `~/.cache/silero_onnx/tokdir` (`$SILERO_ONNX_CACHE` overrides), never into
   the package — installed wheels are often read-only. A marker file guards
   completeness; content is deterministic.
-- **Dynamic shapes, fixed batch.** All ONNX graphs use dynamic `T`/`F` axes;
-  batch is specialized to 1 everywhere (loops/pads that require it are
-  single-utterance by construction, documented in code).
+- **Dynamic shapes, fixed TTS batch.** The acoustic/vocoder/predictor/iSTFT
+  graphs are single-utterance by construction (batch 1, dynamic sequence /
+  frequency axes as applicable);
+  the stress/ngram frontend graphs additionally expose dynamic batch/word
+  axes (`B`/`T` for stress, `K`/`W` for ngram; documented in
+  `scripts/DEVELOPMENT.md`).
 - **ORT strictness workarounds (all verified, none speculative).**
   Repetition counts are int64 (`Range` rejects mixed int32/int64);
   complex numbers never cross a graph boundary (split real/imag);
   string/dict control flow stays in Python.
-- **Error style.** `SystemExit(2/3/4)` with actionable messages for usage /
+- **Error style.** `SystemExit` with actionable messages for usage /
   environment / inference failures; `ValueError` for domain errors (unknown
   speaker/symbols). No tracebacks for expected failures, no silent wrong output.
 
 ## 3. Files in `silero_onnx/`
 
-- `__init__.py` — public facade only: `SileroTTS`, `main`.
-- `engine.py` — CLI (`--models-dir/--model-version/--ssml/--examples`),
-  console output (colors/examples text). Inference itself lives in
-  `strategies/`; model-directory autoresolve for the CLI
-  (`SILERO_ONNX_MODELS` env, then `<repo>/models/onnx/`).
-- `env.py` — single source of truth for environment variables
-  (`MODELS_DIR_VAR`, `CACHE_VAR`, `NO_COLOR_VAR` plus `models_dir()`,
-  `cache_dir()`, `colors_enabled()`). Every `os.environ` read in the
-  runtime goes through here, tests included — a rename touches one file.
-- `versions.py` — `MODEL_SETS` (model filenames per version, single
-  source of truth; v5_6 has no `istft` step — measured) +
-  `VERSIONS` + `DEFAULT_VERSION` (`v5_6_ru`).
-- `strategies/` — versioned inference behind one contract:
-  `base.py` (`TTSStrategy` ABC: abstract `speakers`/`synthesize`,
-  concrete `synthesize_to_file()`; the shared vocoder/ISTFT tail serves
-  v5 — v5_6 calls its direct vocoder session instead, no `istft`),
-  `pauses.py` (shared SSML `<break>` machinery: two-pass rate forcing +
-  numpy `fx_pauses` port; the silence fill is model-specific — v5_ru
-  `-8.0` from `data/pause.json`, v5_6_ru `-5.0` as a strategy
-  constant),
-  `v5/strategy.py` (`Strategy_V5`: frontend → acoustic → vocoder →
-  istft; `<break>` pauses via `pauses.py`),
-  `v5_6/strategy.py` (`Strategy_V5_6`: markers, plus SSML rate/break
-  lowering on the same `_build()` path → `_prepare()`/`_prepare_ssml()`
-  feeds (`V56Feeds` namedtuple) → dur/pitch predictor sessions →
-  `gt_durs=exp(pred)-1`, raw `gt_pitch` → acoustic → vocoder audio;
-  `<prosody pitch>` warns loudly — no channel in this operating point;
-  `<intensity=N>` is stripped pre-XML like upstream and scales `*`/`**`
-  focus masks (first tag wins per utterance, differing values warn;
-  inert + warned without focus marks);
-  unmatched focus words ignored like upstream),
-  `v5_6/emphasis.py` (torch-free port of the upstream v5_6 text
-  algorithms: question taxonomy, `**` validation/conversion, focus
-  re-marking, sentence spans, `place_tokens`; torch-verified vectors
-  live in `tests/test_v56_text.py`),
-  `__init__.py` (factory `create_strategy` + `SileroTTS` facade with
-  `version=`; unknown versions → `ValueError`, missing assets →
-  `SystemExit` listing expected filenames; `model_dir=None` resolves
-  through the env var only — the `<repo>/...` fallback is CLI-side).
-- `frontend.py` — `normalize()` (whitespace/abbr/numbers), `tokenize()` (+
-  `errors="raise"|"filter"`), baked symbol/speaker tables, `TorchFreeFrontend`
-  assembling numpy feeds (`prepare()` plain, `prepare_ssml()` with per-token
-  prosody arrays and break plans; `text_to_ids()`/`stress_and_tokenize()`
-  shared with `Strategy_V5_6`). Unknown chars are *filtered* (matches the
-  original pipeline's silent dropping, unlike the strict default of
-  `tokenize()`).
-- `ssml.py` — stdlib-only `<speak>` parser (break/prosody/p/s, upstream
-  tables and errors mirrored, deviations documented); ms→frames clock.
-  On v5_ru, prosody lowers to per-token rate/pitch arrays — one acoustic
-  pass, no graph changes. `<break>` forces exact pause durations (500 ms
-  → 40 frames) via the shared two-pass path in `strategies/pauses.py`
-  (second acoustic pass + mel silencing); user `+` stress marks keep
-  working inside SSML on both tracks, and v5_6_ru keeps its `**`/`*`
-  markers working inside segments too. Whole-second breaks only (`1.5s`
-  fails like upstream). v5_ru comma breaks use override+silence instead
-  of upstream's batch-2 support re-prediction (§7.1); v5_6_ru's
-  always-gt operating point skips that upstream path as well, so there
-  is no deviation there. `<prosody pitch>` on v5_6_ru warns and is
-  ignored (that graph takes pitch from the predictor; no `pitch_coefs`
-  input under gt).
-- `homograph_solver.py` — `OnnxStress` (tokenizer + regex/phrases + ORT batch
-  + string assembly) and `FullStress` (homographs-then-ngrams ordering with
-  the original skip-list wiring). Model/cache dirs resolved via `env`.
+- `__init__.py` — public facade only: `SileroTTS`, `EngineFactory`, `main`.
+- `engine.py` — orchestrator + CLI. `EngineFactory.create_engine(
+  language_id, version_id, model_dir)` resolves both registries, rejects
+  incompatible language/version capability pairs *before* touching model
+  files, opens the version sessions, and injects language/frontend/
+  sessions/version into the strategy. CLI (`--output/--speaker/--models-dir/
+  --model-version/--ssml/--examples/--speaker-list/--model-list`), console output, and
+  CLI-only model-dir autoresolve
+  (`SILERO_ONNX_MODELS`, then `<repo>/models/onnx/`) also live here.
+- `cli.py` — thin re-export of `engine.main` (console-script target).
+- `env.py` — single source of truth for environment-variable names
+  (`MODELS_DIR_VAR`, `CACHE_VAR`, `NO_COLOR_VAR`) and the runtime accessors
+  `models_dir()`, `cache_dir()`, `colors_enabled()`. Runtime reads go
+  through here; tests use the same name constants, so a rename touches one
+  place.
+- `versions.py` — backward-compatible projection of the model layer:
+  `MODEL_SETS`, `VERSIONS`, `DEFAULT_VERSION` (`v5_6_ru`). New code
+  imports `silero_onnx.models`.
+- `models/` — declarative model-version layer (knows nothing about
+  languages/frontends):
+  `spec.py` (`ModelSet`, `ModelSpec`: ONNX files, session topology,
+  acoustic input names, `supports_stress`/`supports_ssml`/`supports_pitch`/
+  `supports_questions`, pause fill), `versions.py` (`Version_V5Ru`,
+  `Version_V56`), `registry.py` (`ModelRegistry`).
+- `languages/` — language abstraction independent of model versions:
+  `base.py` (`AbstractLanguage`: `normalize`, `apply_stress`,
+  `get_symbol_table`, `get_speakers`, `requires_stress`; no-stress
+  `apply_stress` is a no-op), `registry.py` (`LanguageRegistry`), and
+  `ru/` (`Language_Ru` + abbreviations/numbers/stress/symbols).
+- `frontend/` — text frontend with the language injected via DI:
+  `base.py` (`AbstractTextFrontend`), `pipeline.py` (`TextPipeline`),
+  `stages.py` (`NormalizeStage`, `AbbrevStage`, `NumberStage`,
+  `StressStage`, `TokenizeStage`), `ru.py` (`TextFrontend_Ru`; the legacy
+  `TorchFreeFrontend` name remains an alias). `__init__.py` re-exports the
+  old module-level `normalize()`/`tokenize()`/table helpers so existing
+  callers keep working.
+- `common/` - version-neutral services shared by the frontend and
+  strategies: `ssml_lowering.py` (`SsmlLoweringService`, `SsmlPlan`,
+  `SegmentPlan`: the single parse→normalize→segment merge→rate/pitch
+  attribution algorithm; it imports no
+  model-version or ONNX-session code, so the frontend can depend on it
+  directly).
+- `strategies/` - version-specific inference behind one contract:
+  `base.py` (`AbstractTTSStrategy`: request validation including the
+  version's `supports_ssml` gate, unknown-speaker checks, shared
+  `synthesize_to_file()`; v5's shared vocoder/ISTFT tail),
+  `common/` (`BreakProcessor`/`PauseService`: two-pass rate forcing +
+  numpy `fx_pauses` with a model-specific silence fill; `FeedBuilder`:
+  version-input assembly,
+  `durs_rate` finite-and-`> 0` validation, zero focus masks for no-stress
+  versions; `ssml_lowering.py` is a compatibility re-export of
+  `silero_onnx.common.ssml_lowering`),
+  `pauses.py` (compatibility re-export of `common/breaks.py`),
+  `v5/strategy.py` (`Strategy_V5`), `v5_6/strategy.py` (`Strategy_V56`,
+  historical alias `Strategy_V5_6`: markers + SSML rate/pitch/breaks →
+  predictors → acoustic → vocoder; pitch_coefs drive the checkpoint's
+  update_pitch_coef on the predictor pitch; `<intensity=N>` is stripped
+  pre-XML like upstream and scales focus masks), `v5_6/emphasis.py` (torch-free
+  port of the upstream v5_6 text algorithms; vectors in
+  `tests/test_v56_text.py`), `__init__.py` (`StrategyFactory`; lazy
+  `create_strategy`/`SileroTTS` compatibility hooks; `Feeds_V56`
+  canonical feed namedtuple with legacy `V56Feeds` alias).
+- `ssml.py` — stdlib-only `<speak>` parser (break/prosody/p/s; upstream
+  tables are mirrored, with deliberate error-policy deviations documented
+  in the module). Unsupported tags and unknown `<break>`/`<prosody>`
+  attributes raise `ValueError` instead of being silently dropped.
+  Provides the ms→frames clock. Version-independent lowering lives in
+  `common/ssml_lowering.py` (the old
+  `strategies/common/ssml_lowering.py` path is a compatibility re-export).
+- `ort.py` — single runtime session factory: 2 intra-op threads, 1
+  inter-op thread, sequential execution (reproducible CPU policy). Used
+  by acoustic/vocoder/predictor sessions and by stress/ngram inference.
+- `homograph_solver.py` — `OnnxStress` (tokenizer + regex/phrases + ORT
+  batch + string assembly) and `FullStress` (homographs-then-ngrams
+  ordering with the original skip-list wiring). Model/cache dirs via
+  `env`.
 - `ngram_accentor.py` — `OnnxNgram`: `<word>` n-grams 1–4 → ids (UNK
   fallback), offsets, ORT core, exceptions/user-marks/1-syllable rules.
-  Model dir resolved via `env`.
 - `bert_tokenizer.py` — verbatim vendored stdlib-only WordPiece tokenizer.
-- `data/` — runtime JSON tables (see above); `tokdir/` is *generated*, not shipped.
+- `data/` — runtime JSON tables (see above); `tokdir/` is *generated*,
+  not shipped.
 
 ## 4. Project structure
 
 ```
 silero/                          # repo root
 ├── silero_onnx/                 # torch-free runtime package (ships in the wheel)
-│   ├── __init__.py              # public facade: SileroTTS, main
-│   ├── engine.py                # CLI, discovery, console output (inference lives in strategies/)
-│   ├── versions.py              # MODEL_SETS per version + DEFAULT_VERSION (v5_6_ru)
-│   ├── strategies/              # versioned inference behind TTSStrategy + factory
-│   │   ├── __init__.py          # create_strategy() + SileroTTS facade (version=)
-│   │   ├── base.py              # TTSStrategy ABC (+ shared vocoder/ISTFT tail, v5 path)
-│   │   ├── pauses.py            # shared SSML <break> machinery (two-pass rate forcing + fx_pauses)
-│   │   ├── v5/                  # v5 inference strategy package
-│   │   │   ├── __init__.py      # re-exports Strategy_V5
-│   │   │   └── strategy.py      # Strategy_V5 (pipeline moved unchanged; breaks via pauses.py)
-│   │   └── v5_6/                # v5_6 inference strategy package
-│   │       ├── __init__.py      # re-exports Strategy_V5_6
-│   │       ├── strategy.py      # Strategy_V5_6 (markers + SSML rate/breaks → predictors → acoustic → vocoder)
-│   │       └── emphasis.py      # v5_6 text algorithms port (taxonomy/spans/place_tokens)
-│   ├── frontend.py              # normalize/tokenize/TorchFreeFrontend (+ prepare_ssml)
+│   ├── __init__.py              # public facade: SileroTTS, EngineFactory, main
+│   ├── engine.py                # EngineFactory/orchestrator + CLI + console output
+│   ├── cli.py                   # console-script target (re-export of engine.main)
+│   ├── env.py                   # env vars single source of truth
+│   ├── versions.py              # compat MODEL_SETS / VERSIONS / DEFAULT_VERSION
+│   ├── ort.py                   # shared ORT session policy: 2 intra, 1 inter, sequential
+│   ├── models/                  # declarative model-version layer
+│   │   ├── spec.py              # ModelSet / ModelSpec (files, topology, capabilities)
+│   │   ├── versions.py          # Version_V5Ru / Version_V56
+│   │   └── registry.py          # ModelRegistry
+│   ├── languages/               # language layer (no model versions)
+│   │   ├── base.py              # AbstractLanguage (+ requires_stress)
+│   │   ├── registry.py          # LanguageRegistry
+│   │   └── ru/                  # Language_Ru + abbreviations/numbers/stress/symbols
+│   ├── frontend/                # text frontend (language injected via DI)
+│   │   ├── base.py              # AbstractTextFrontend
+│   │   ├── pipeline.py          # TextPipeline
+│   │   ├── stages.py            # Normalize/Abbrev/Number/Stress/Tokenize stages
+│   │   └── ru.py                # TextFrontend_Ru (+ legacy TorchFreeFrontend)
+│   ├── common/                  # version-neutral services shared by frontend + strategies
+│   │   └── ssml_lowering.py      # SsmlLoweringService/SsmlPlan/SegmentPlan
+│   ├── strategies/              # versioned inference behind AbstractTTSStrategy
+│   │   ├── __init__.py          # StrategyFactory + compat create_strategy/SileroTTS
+│   │   ├── base.py              # AbstractTTSStrategy (validation + shared tail)
+│   │   ├── common/              # breaks.py, feeds.py; ssml_lowering.py compat re-export
+│   │   ├── pauses.py            # compat re-export of common/breaks.py
+│   │   ├── v5/strategy.py       # Strategy_V5
+│   │   └── v5_6/                # Strategy_V56 (+ historical Strategy_V5_6), emphasis.py
 │   ├── ssml.py                  # stdlib-only <speak> parser (break/prosody/p/s tables)
 │   ├── homograph_solver.py      # OnnxStress + FullStress (homographs-then-ngrams)
 │   ├── ngram_accentor.py        # OnnxNgram (plain-word stress)
@@ -171,35 +216,42 @@ silero/                          # repo root
 │                                 # pause (sil_value for fx_pauses)
 ├── scripts/                     # one-off build: torch allowed, dormant after build
 │   ├── requirements-export.txt  # build-env installer (extra + CPU torch index)
-│   ├── export_all.py            # orchestrator: fixtures → v5 (5 models) → v5_6 (4 models)
+│   ├── export_all.py            # orchestrator: fixtures → v5 (5 new) → v5_6 (4 new; 2 shared)
 │   ├── make_fixtures.py         # [gen] fixtures + speakers/symbols.json validation + result log
 │   ├── check_models.py          # deployment check (torch-free, generates nothing)
 │   ├── check_parity.py          # torch-vs-ONNX e2e parity (build env only, generates nothing)
 │   ├── package_models.py        # release ZIP packer (file list derived from MODEL_SETS)
-│   ├── _common.py               # L1/L2 gates, seeds, unified `# header → L1/L2 → RESULT` log format
+│   ├── _common.py               # L1/L2 gates, seeds, unified `# header → gates → RESULT` log format
 │   ├── strategies/              # versioned export tracks (torch allowed here, never in runtime)
-│   │   ├── v5/                  # everything v5-specific (clean ports + 5 exporters + orchestrator)
-│   │   │   ├── export.py        # orchestrator: the 5 v5_ru exporters in order
+│   │   ├── base.py              # AbstractExportPipeline (prepare→export→validate→finalize)
+│   │   ├── v5/                  # everything v5-specific
+│   │   │   ├── export.py        # ExportPipeline_V5: the 5 exporters in order
 │   │   │   ├── export_acoustic.py / export_vocoder.py / export_istft.py /
 │   │   │   │   export_stress.py / export_ngram.py  # per-model exporters (path bootstrap inside)
+│   │   │   ├── build.py         # canonical build import (build_acoustic)
+│   │   │   ├── vocoder.py       # canonical vocoder-export import
+│   │   │   ├── stress.py        # canonical stress-export import
 │   │   │   └── acoustic.py, build_acoustic.py, encoder.py, decoder.py, fftblock.py,
 │   │   │       slowmha.py, predictors.py, istft_model.py, layernorm.py  # clean torch ports
-│   │   └── v5_6/                # isolated v5_6_ru export track (reuses v5 blocks, never duplicates)
-│   │       ├── export.py        # orchestrator: spy capture → transplant → L0 → dynamo ×4 → L1/L2/e2e
-│   │       ├── build.py         # transplants with measured invariants (118 + 112/81 tensors)
-│   │       ├── series.py        # SeriesPredictor56 (+type/focus adds) / Dur/PitchPredictor56
-│   │       ├── forward.py       # Tacotron56 + Acoustic56 (branch-free control flow)
+│   │   └── v5_6/                # isolated v5_6_ru export track (reuses v5 blocks)
+│   │       ├── export.py        # ExportPipeline_V56: spy capture → transplant → L0 → dynamo ×4 → L1/L2 + e2e gate
+│   │       ├── acoustic.py      # Tacotron_V56 + Acoustic_V56 (branch-free control flow)
+│   │       ├── dur_predictor.py / pitch_predictor.py  # canonical predictor imports
+│   │       ├── build.py         # transplants with per-tensor shape asserts + measured invariants
+│   │       ├── series.py        # SeriesPredictor_V56 (+type/focus adds) / Dur/PitchPredictor_V56
+│   │       ├── forward.py       # Main_V56 fused parity port; re-exports Acoustic_V56/Tacotron_V56
 │   │       ├── vocoder.py       # ConvNeXt backbone + Vocos ISTFT head (RealISTFT reuse)
 │   │       └── README.md        # track usage + engine operating point contract
 │   ├── README.md                # build quickstart + per-script table
 │   └── DEVELOPMENT.md           # exporter internals, thresholds, maintenance
-├── tests/                       # torch-free suites (104 tests; model tests skip without models)
+├── tests/                       # torch-free suites (131 tests; model tests skip without models)
 │   ├── conftest.py              # model-set detection + requires_models/requires_v56 skips
 │   ├── test_production.py       # frontend/stress/facade/synthesis/errors + static torch-import scan
 │   ├── test_extended_robustness.py  # edges/threads/memory/integrity/RTF
 │   ├── test_ssml.py             # SSML parser contract + lowering + prosody/break/intensity behavior + CLI
 │   ├── test_v56_text.py         # v5_6 text-algorithm vectors (torch-verified)
-│   └── test_factory.py          # strategy routing + V56Feeds contract (no models)
+│   ├── test_factory.py          # strategy routing + Feeds_V56 contract (no models)
+│   └── test_architecture.py     # language/version/strategy/factory capability contracts (no models)
 ├── models/ [gen]                  # local model storage, git-ignored (build output only)
 │   ├── onnx/ [gen]                # export pipeline output
 │   │   ├── acoustic_v5_ru.onnx [gen]  # ~31 MB single file: ids/spk/rates/coefs -> mel + durations
@@ -207,7 +259,7 @@ silero/                          # repo root
 │   │   ├── istft_48k.onnx [gen]       # ~92 MB single file: (mag,x,y) -> waveform (float64 IDFT core)
 │   │   ├── silero_stress.onnx [gen]   # ~117 MB homosolver BERT-tiny (input_ids + spans -> logits)
 │   │   ├── ngram_core.onnx [gen]      # ~8 MB EmbeddingBag + stress/yo heads
-│   │   ├── acoustic_v5_6_ru.onnx [gen]      # ~26 MB: seq/spk/rate/gt/type/focus -> mel + dur
+│   │   ├── acoustic_v5_6_ru.onnx [gen]      # ~26 MB: seq/spk/rate/gt/pitch_coefs/type/focus -> mel + dur
 │   │   ├── dur_predictor_v5_6_ru.onnx [gen]      # ~2.5 MB: text/spk/mask/type/focus -> dur
 │   │   ├── pitch_predictor_v5_6_ru.onnx [gen]    # ~2.5 MB: text/spk/mask/type/focus -> pitch
 │   │   ├── vocoder_v5_6_ru.onnx [gen]            # ~151 MB: mel -> waveform (48 kHz path, no PQMF)
@@ -220,7 +272,7 @@ silero/                          # repo root
 │   │   ├── istft_export_result.txt [gen]         # istft L1/L2 gate log
 │   │   ├── stress_export_result.txt [gen]       # stress L1/L2 gate log
 │   │   ├── ngram_export_result.txt [gen]         # ngram L1/L2 gate log
-│   │   └── v5_6_export_result.txt [gen]         # v5_6 L0/L1/L2/e2e gate log
+│   │   └── v5_6_export_result.txt [gen]         # v5_6 L0/L1/L2 + e2e gate log
 │   └── torch/ [gen]               # raw upstream checkpoints, placed manually
 ├── pyproject.toml               # runtime deps (torch-free) + export/dev extras
 ├── README.md                    # user quickstart (zero → audio)
@@ -231,11 +283,15 @@ silero/                          # repo root
 Legend: `[gen]` = generated locally by the named script, never committed
 (`models/`, caches and packaging outputs are git-ignored); everything
 else is versioned source. The per-file generator mapping stays
-maintainable by convention, not by vigilance: each `export_<name>.py`
-writes its artifact into `models/onnx/`, and `check_models.py::EXPECTED`
+maintainable by convention, not by vigilance: each version's exporter
+(v5's per-model `export_<name>.py` steps or the v5_6 `export.py`) writes
+its artifacts into `models/onnx/`, and `check_models.py::EXPECTED`
 holds the I/O contract of every artifact while enforcing full coverage
-of `MODEL_SETS` (both the v5_ru set and the v5_6_ru set) — adding a
-model means one `MODEL_SETS` name, one exporter, one `EXPECTED` row.
+of `MODEL_SETS` (both the v5_ru set and the v5_6_ru set). Adding a model
+means one `MODEL_SPECS` entry (`MODEL_SETS` is derived from it), one
+exporter registration (the v5 `STEPS` list or the v5_6 `artifacts`/
+`export_all_onnx`), and one `EXPECTED` row; a new version track also gets
+an `export_all.py` step.
 `scripts/package_models.py` derives the release ZIP contents from the
 same `MODEL_SETS`, so a release cannot silently omit a model set.
 
@@ -245,8 +301,8 @@ Three GitHub Actions workflows, split by cost:
 
 | Workflow | Trigger | What it runs |
 |---|---|---|
-| `ci.yml` | every push (any branch) + pull requests | torch-free, model-free: runtime + dev extras, torch-free import and light CLI smoke checks, `pytest` — model-dependent tests skip and are reported in one summary line (per-test reasons via `-rs`; see `tests/conftest.py`) |
-| `e2e.yml` | every push to `master` (default branch; merges included) + manual (`workflow_dispatch`; pick any branch in the Run workflow dialog) | full pipeline: build env → `export_all.py` (both model sets) → `check_models.py` (all 9 artifacts) → `check_parity.py` → full `pytest --require-models` → `package_models.py` dry-run; gate logs summarized and uploaded |
+| `ci.yml` | every push (any branch) + pull requests + manual (`workflow_dispatch`) | torch-free, model-free: runtime + dev extras, torch-free import and light CLI smoke checks, `pytest` — model-dependent tests skip and are reported in one summary line (per-test reasons available with `-rs`; see `tests/conftest.py`) |
+| `e2e.yml` | every push to `master` (default branch; merges included) + manual (`workflow_dispatch`; pick any branch in the Run workflow dialog) | full pipeline: build env → `export_all.py` (both model sets) → `check_models.py` (all 9 artifacts) → `check_parity.py` (v5 e2e; the v5_6 e2e gate runs inside its export step) → full `pytest --require-models` → `package_models.py` dry-run; gate logs summarized and uploaded |
 | `export_and_release.yml` | `v*` tags (or manual dispatch) | same export/validate/test chain, then packages and publishes the GitHub Release (ZIP + individual models) |
 
 Model tests carry the `requires_models` (v5_ru set) or `requires_v56`
@@ -258,11 +314,14 @@ instructions live next to the files:
 
 ## 6. Development principles
 
-- **Evidence over reasoning.** Every component carries a numeric gate
-  (bit-exact where achievable, e.g. `max_abs=0.0` on transplants; ≤1e-4
-  end-to-end). A passing suite is the definition of done.
+- **Evidence over reasoning.** Every exported model carries a numeric gate
+  (bit-exact where achievable, e.g. `max_abs=0.0` on the iSTFT/ngram
+  exports; the end-to-end waveform gate is `5e-4`, with wider diagnostic
+  mel/mag bars documented in `scripts/DEVELOPMENT.md`). A passing suite is
+  the definition of done.
 - **Separation of concerns.** Neural math (ONNX) vs text rules (Python) vs
-  orchestration (`SileroTTS`) never mix in one module.
+  orchestration (`EngineFactory`/`TTSEngine`, exposed by `SileroTTS`)
+  never mix in one module.
 - **Thread safety.** ORT sessions are shared across threads (documented
   thread-safe for `run()`); frontend state is read-only after init; lazy
   singletons are warmed before fan-out. Covered by a 6-thread test.

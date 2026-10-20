@@ -5,11 +5,24 @@ any upstream change fails loudly here instead of silently degrading
 audio. Conventions follow build_acoustic.py (copy_ per tensor, now
 with per-tensor shape asserts rather than a bare total count).
 """
-import torch
+import os
+import sys
 
-from forward import Acoustic56, Main56, Tacotron56
-from series import DurPredictor56, PitchPredictor56
-from vocoder import Vocoder56
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+V5_DIR = os.path.join(os.path.dirname(THIS_DIR), "v5")
+SCRIPTS_DIR = os.path.dirname(os.path.dirname(THIS_DIR))
+# THIS_DIR first: both tracks have an `acoustic` module.
+for _p in (SCRIPTS_DIR, V5_DIR, THIS_DIR):
+    if _p in sys.path:
+        sys.path.remove(_p)
+    sys.path.insert(0, _p)
+
+import torch  # noqa: E402
+
+from acoustic import Acoustic_V56, Tacotron_V56  # noqa: E402
+from forward import Main_V56  # noqa: E402
+from series import DurPredictor_V56, PitchPredictor_V56  # noqa: E402
+from vocoder import Vocoder_V56  # noqa: E402
 
 
 def _g(root, *names):
@@ -50,8 +63,8 @@ def transplant_predictors(jm, log=None):
     # pitch and tacotron tables must agree — asserted on copy below).
     n_spk = _g(jm, "dur_predictor", "dur_pred",
                ).speaker_embedding.weight.shape[0]
-    dur = DurPredictor56(n_types=12, n_speakers=n_spk).eval()
-    pitch = PitchPredictor56(n_types=6, n_speakers=n_spk).eval()
+    dur = DurPredictor_V56(n_types=12, n_speakers=n_spk).eval()
+    pitch = PitchPredictor_V56(n_types=6, n_speakers=n_spk).eval()
     for clean, key, sub, n_types, want_emph in (
             (dur, "dur_predictor", "dur_pred", 12, False),
             (pitch, "pitch_predictor", "pitch_pred", 6, True)):
@@ -94,7 +107,7 @@ def transplant_tacotron(jm, log=None):
     lg = log if log is not None else []
     src = _g(jm, "tacotron")
     n_spk = _g(src, "speaker_embedding").weight.shape[0]
-    t = Tacotron56(n_speakers=n_spk).eval()
+    t = Tacotron_V56(n_speakers=n_spk).eval()
     assert str(src.pitch_emb_type) == "default", src.pitch_emb_type
     assert float(src.pitch_strength) == 1.0, src.pitch_strength
     assert float(src.energy_strength) == 0.0, src.energy_strength
@@ -144,7 +157,7 @@ def transplant_tacotron(jm, log=None):
 
 def transplant_vocoder(jm, log=None):
     lg = log if log is not None else []
-    v = Vocoder56().eval()
+    v = Vocoder_V56().eval()
     src = _g(jm, "vocoder")
     bb = _g(src, "backbone")
     emb = _g(bb, "embed")
@@ -196,13 +209,14 @@ def build_main(jm, log=None):
 
     NOT exported as one graph: the fold-based ISTFT tail does not
     dynamo-export inside the fused graph (data-dependent guard). The
-    exportable units are Acoustic56 (-> mel, dur) and the standalone
-    Vocoder56 (-> audio); both halves follow the proven v5 paths."""
+    exportable units are Acoustic_V56 (-> mel, dur) and the standalone
+    Vocoder_V56 (-> audio); both halves follow the proven v5 paths."""
     t = transplant_tacotron(jm, log)
     v = transplant_vocoder(jm, log)
-    return Main56(Acoustic56(t), v).eval()
+    return Main_V56(Acoustic_V56(t, jm.mean_std_coef), v).eval()
 
 
 def build_acoustic56(jm, log=None):
     """Assemble the exportable acoustic half (text -> mel, dur)."""
-    return Acoustic56(transplant_tacotron(jm, log)).eval()
+    return Acoustic_V56(transplant_tacotron(jm, log),
+                        jm.mean_std_coef).eval()

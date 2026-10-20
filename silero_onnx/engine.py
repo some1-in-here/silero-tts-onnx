@@ -1,35 +1,168 @@
-"""CLI + model discovery for torch-free Silero TTS (text -> ONNX -> audio).
+"""Engine factory/orchestrator + CLI for torch-free Silero TTS.
 
-Inference itself lives in strategies/ (see strategies/__init__.py);
-this module keeps argument parsing, console output, and the
-model-directory discovery. Nothing here imports torch (verified:
-fresh subprocess + ``sys.modules`` check in CI-style tests).
+Layer contract:
+  EngineFactory.create_engine(language_id, version_id, model_dir)
+    -> LanguageRegistry / ModelRegistry
+    -> capability checks (stress, SSML)
+    -> TextFrontend (language injected via DI)
+    -> ONNX sessions for the version
+    -> Strategy_* (sessions + frontend injected via DI)
 
-Typical use:
-  tts = SileroTTS(model_dir="path/to/onnx", version="v5_ru")
-  audio = tts.synthesize("Привет, мир!", speaker="xenia")  # float32 mono, 48kHz
+The CLI lives here for backward compatibility; all inference is in
+``strategies/`` and all text rules in ``languages/`` + ``frontend/``.
 """
 import argparse
 import os
 import sys
 
-import numpy as np  # noqa: F401 (kept for console-side array handling)
+import numpy as np  # noqa: F401 (console-side array handling)
 
 from . import env
-from .frontend import load_speaker_map
-from .strategies import SileroTTS
+from .frontend import (TextFrontend, TextFrontend_Ru, load_speaker_map)
+from .languages import LanguageRegistry
+from .models import ModelRegistry
+from .ort import create_session
+from .strategies import StrategyFactory
 from .versions import DEFAULT_VERSION, MODEL_SETS, VERSIONS
 
 assert "torch" not in sys.modules, "torch must never be imported here"
 
 
-def _env_models_dir(version=DEFAULT_VERSION):
-    """SILERO_ONNX_MODELS env var, validated by the version's acoustic file.
+# ---------------------------------------------------------------------
+# Orchestrator / factory
+# ---------------------------------------------------------------------
 
-    Explicit user configuration: honored by both the library and the
-    CLI. Returns None when unset; a set-but-wrong path fails loudly
-    downstream (missing-file diagnostics), never silently falls back.
-    """
+class TTSEngine:
+    """A fully assembled engine: language + frontend + sessions + strategy."""
+
+    def __init__(self, language, version, frontend, sessions, strategy):
+        self.language = language
+        self.version = version
+        self.frontend = frontend
+        self.sessions = sessions
+        self.strategy = strategy
+
+    @property
+    def speakers(self):
+        return self.strategy.speakers
+
+    def synthesize(self, *args, **kwargs):
+        return self.strategy.synthesize(*args, **kwargs)
+
+    def synthesize_to_file(self, *args, **kwargs):
+        return self.strategy.synthesize_to_file(*args, **kwargs)
+
+
+class EngineFactory:
+    """Abstract Factory: builds an engine from (language, model version)."""
+
+    @classmethod
+    def create_engine(cls, language_id="ru", version_id=DEFAULT_VERSION,
+                      model_dir=None, data_dir=None):
+        # 1. Resolve declarative layers first: no sessions are touched
+        #    until the pair is proven compatible.
+        try:
+            language = LanguageRegistry.get(language_id,
+                                            models_dir=model_dir,
+                                            data_dir=data_dir)
+        except (OSError, KeyError) as e:
+            raise SystemExit(
+                f"silero-onnx: error: cannot load frontend data for "
+                f"language '{language_id}': {e}")
+        version = ModelRegistry.get(version_id)
+        if language.requires_stress and not version.supports_stress:
+            raise ValueError(
+                f"Language '{language_id}' requires stress, but version "
+                f"'{version_id}' does not support it")
+
+        # 2. Resolve the model directory (library never auto-discovers
+        #    <repo>/models/onnx; the CLI does that separately).
+        if model_dir is None:
+            model_dir = _env_models_dir(version_id)
+        if model_dir is None:
+            raise SystemExit(
+                "silero-onnx: error: no model_dir given: pass "
+                "model_dir='path/to/models' explicitly (or set "
+                f"{env.MODELS_DIR_VAR}). The library never auto-discovers "
+                f"<repo>/models/onnx/ - only the silero-onnx CLI does that "
+                f"(version '{version_id}' needs: "
+                f"{', '.join(version.model_files().values())})")
+        if not os.path.isdir(model_dir):
+            raise SystemExit(
+                "silero-onnx: error: no ONNX models found for version "
+                f"'{version_id}' (expected "
+                f"{', '.join(version.model_files().values())} in model_dir). "
+                "Build them with python scripts/export_all.py (v5_ru) or "
+                "python scripts/strategies/v5_6/export.py (v5_6_ru) "
+                "(see scripts/README.md), pass model_dir=... explicitly, or "
+                f"set {env.MODELS_DIR_VAR}. ({env.MODELS_DIR_VAR}=%r, "
+                "model_dir=%r)" % (env.models_dir(), model_dir))
+        data_dir = data_dir or _dev_data_dir()
+
+        # 3. Inject the language into the frontend.
+        if language_id == "ru":
+            frontend = TextFrontend_Ru(language=language, data_dir=data_dir)
+        else:
+            frontend = TextFrontend(language=language, data_dir=data_dir)
+
+        # 4. Open the version's sessions with the shared ORT policy.
+        sessions = {}
+        for key, fname in version.model_files().items():
+            path = os.path.join(model_dir, fname)
+            if not os.path.isfile(path):
+                raise SystemExit(
+                    f"silero-onnx: error: missing model file {path} "
+                    f"(version '{version_id}' needs: "
+                    f"{', '.join(version.model_files().values())})")
+            try:
+                sessions[key] = create_session(path)
+            except SystemExit:
+                raise
+            except Exception as e:
+                raise SystemExit(
+                    f"silero-onnx: error: cannot load {path}: {e}")
+
+        # 5. Inject frontend/sessions/version into the strategy.
+        strategy = StrategyFactory.create(
+            version_id, model_dir, data_dir, sessions, frontend,
+            version=version, language=language)
+        return TTSEngine(language, version, frontend, sessions, strategy)
+
+
+class SileroTTS:
+    """Version- and language-selected facade (defaults: ru, v5_6_ru)."""
+
+    def __init__(self, model_dir=None, data_dir=None,
+                 version=DEFAULT_VERSION, language="ru"):
+        self._engine = EngineFactory.create_engine(
+            language_id=language, version_id=version,
+            model_dir=model_dir, data_dir=data_dir)
+
+    @property
+    def version(self):
+        return self._engine.version.version_id
+
+    @property
+    def language(self):
+        return self._engine.language.language_id
+
+    @property
+    def speakers(self):
+        return self._engine.speakers
+
+    def synthesize(self, *args, **kwargs):
+        return self._engine.synthesize(*args, **kwargs)
+
+    def synthesize_to_file(self, *args, **kwargs):
+        return self._engine.synthesize_to_file(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------
+# Paths / discovery
+# ---------------------------------------------------------------------
+
+def _env_models_dir(version=DEFAULT_VERSION):
+    """SILERO_ONNX_MODELS env var, validated by the version's acoustic file."""
     acoustic = MODEL_SETS.get(version, {}).get("acoustic", "")
     envdir = env.models_dir()
     if envdir and acoustic and os.path.isfile(os.path.join(envdir, acoustic)):
@@ -38,19 +171,13 @@ def _env_models_dir(version=DEFAULT_VERSION):
 
 
 def _cli_models_dir(version=DEFAULT_VERSION):
-    """Model directory autoresolve — CLI ONLY (env var, then <repo>/models/onnx).
-
-    The `<repo>/models/onnx` fallback lives here and nowhere else: library
-    entry points (`SileroTTS`, `create_strategy`) never look there and
-    fail loudly without an explicit `model_dir` (or the env var).
-    """
+    """Model directory autoresolve — CLI ONLY (env var, then <repo>/models/onnx)."""
     found = _env_models_dir(version)
     if found is not None:
         return found
     acoustic = MODEL_SETS.get(version, {}).get("acoustic", "")
     here = os.path.dirname(os.path.abspath(__file__))
-    repo_onnx = os.path.normpath(
-        os.path.join(here, "..", "models", "onnx"))
+    repo_onnx = os.path.normpath(os.path.join(here, "..", "models", "onnx"))
     if acoustic and os.path.isfile(os.path.join(repo_onnx, acoustic)):
         return repo_onnx
     return None
@@ -59,6 +186,10 @@ def _cli_models_dir(version=DEFAULT_VERSION):
 def _dev_data_dir():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
+
+# ---------------------------------------------------------------------
+# Console / CLI
+# ---------------------------------------------------------------------
 
 def _use_color():
     """ANSI colors only for live terminals that allow them."""
@@ -70,10 +201,7 @@ def _paint(code, s):
 
 
 class ColorHelpFormatter(argparse.RawDescriptionHelpFormatter):
-    """argparse help with section/flag coloring (tty only, via _paint).
-
-    --speakers output stays plain on purpose (machine-readable list).
-    """
+    """argparse help with section/flag coloring (tty only, via _paint)."""
 
     def format_help(self):
         import re
@@ -119,14 +247,7 @@ _EX_22 = '"Привет из указанной папки моделей!"'
 
 
 def examples_text():
-    """Structured, color-aware usage examples (see --examples).
-
-    Self-describing by policy: each payload's own words demonstrate or
-    narrate the feature it exercises, and the output file name repeats
-    the feature — a copied command is understood without trailing
-    '# ...' legends. Cross-version caveats live in section headers and
-    NOTE lines, never per-example comments.
-    """
+    """Structured, color-aware usage examples (see --examples)."""
     c = _use_color()
 
     def H(s):  # yellow: section headers
@@ -156,8 +277,8 @@ def examples_text():
         f"{F('-o')} v5.wav",
         f"  silero-onnx {F('--model-list')}",
         "",
-        H("✨ Emphasis (v5_6_ru only: **word** emphasized, *word* "
-          "focused, <intensity=0..3> strength)"),
+        H("✨ Emphasis (**word** emphasized, *word* focused, "
+          "<intensity=0..3> strength)"),
         f"  silero-onnx {Q(_EX_03)} "
         f"{F('-o')} emph.wav",
         f"  silero-onnx {Q(_EX_04)} "
@@ -185,7 +306,7 @@ def examples_text():
         f"  silero-onnx {Q(_EX_11)} "
         f"{F('-o')} dash.wav",
         "",
-        H("⚡ SSML (both versions; needs --ssml; <speak> root is mandatory)"),
+        H("⚡ SSML (needs --ssml; <speak> root is mandatory)"),
         f"  {G('<break> — exact pauses (ms, whole seconds, strength):')}",
         f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_12)} "
@@ -206,13 +327,13 @@ def examples_text():
         f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_17)} "
         f"{F('-o')} rate.wav",
-        f"  silero-onnx {F('--model-version')} v5_ru {F('--ssml')} "
+        f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_18)} "
         f"{F('-o')} pitch.wav",
-        f"  silero-onnx {F('--model-version')} v5_ru {F('--ssml')} "
+        f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_19)} "
         f"{F('-o')} slow-low.wav",
-        f"  silero-onnx {F('--model-version')} v5_ru {F('--ssml')} "
+        f"  silero-onnx {F('--ssml')} "
         f"{Q(_EX_20)} "
         f"{F('-o')} nested.wav",
         f"  {G('<p> and <s> — paragraph/sentence breaks (x-strong/strong):')}",
@@ -221,8 +342,7 @@ def examples_text():
         f"{F('-o')} sentences.wav",
         W("  NOTE: without --ssml, tags are plain text — <break .../> gets "
           "vocalized (numbers inside expand), it never pauses."),
-        W("  NOTE: <prosody pitch> works on v5_ru only — v5_6_ru warns "
-          "and keeps its own intonation."),
+        W("  NOTE: <intensity> and **/ * markers are v5_6_ru only."),
         "",
         H("📁 Custom models"),
         f"  silero-onnx {F('--models-dir')} D:\\models\\silero\\onnx "
@@ -248,29 +368,23 @@ def main(argv=None):
     ap.add_argument("text", nargs="?", help="Russian text to synthesize")
     ap.add_argument("-o", "--output", default="out.wav", help="output WAV path")
     ap.add_argument("--speaker", metavar="SPEAKER_NAME", default="xenia",
-                      help="voice name (see --speaker-list)")
+                    help="voice name (see --speaker-list)")
     ap.add_argument("--models-dir", metavar="MODELS_DIR", default=None,
-                      help="dir with the self-contained .onnx model files")
+                    help="dir with the self-contained .onnx model files")
     ap.add_argument("--model-version", metavar="VERSION",
-                      default=DEFAULT_VERSION, choices=sorted(VERSIONS),
-                      help=f"model set version: v5_6_ru (emphasis markers; "
-                           f"default {DEFAULT_VERSION}) or v5_ru (classic "
-                           f"pipeline); both do SSML (prosody pitch is "
-                           f"v5_ru only)")
+                    default=DEFAULT_VERSION, choices=sorted(VERSIONS),
+                    help=f"model set version: v5_6_ru (emphasis markers; "
+                         f"default {DEFAULT_VERSION}) or v5_ru (classic "
+                         f"pipeline)")
     ap.add_argument("--speaker-list", action="store_true",
-                      help="list voices and exit (no models needed)")
+                    help="list voices and exit (no models needed)")
     ap.add_argument("--model-list", action="store_true",
-                      help="list model versions and exit (no models needed)")
+                    help="list model versions and exit (no models needed)")
     ap.add_argument("--ssml", action="store_true",
-                      help="parse text as SSML (<speak>, break/prosody/p/s; "
-                           "prosody pitch works on v5_ru only)")
+                    help="parse text as SSML (<speak>, break/prosody/p/s)")
     ap.add_argument("--examples", action="store_true",
-                      help="print usage examples and exit")
+                    help="print usage examples and exit")
     a = ap.parse_args(argv)
-    # Light commands first: they need no models and must work on a bare
-    # checkout (previously --speakers built SileroTTS first, so it failed
-    # without models). Voices come from the versioned speaker set, which
-    # is identical for every version.
     if a.examples:
         print(examples_text())
         return
@@ -278,8 +392,6 @@ def main(argv=None):
         print(" ".join(sorted(VERSIONS)))
         return
     if a.speaker_list:
-        # No models, no constants: straight from the shipped speakers.json,
-        # so a regenerated table (new upstream voice) lists automatically.
         try:
             table = load_speaker_map()
         except (OSError, ValueError, KeyError) as e:
@@ -294,8 +406,6 @@ def main(argv=None):
     try:
         tts.synthesize_to_file(a.text, a.output, a.speaker, ssml=a.ssml)
     except ValueError as e:
-        # Expected input failures (bad SSML, unknown speaker/symbols):
-        # clean one-line message, never a traceback.
         raise SystemExit(f"silero-onnx: error: {e}")
     import soundfile as sf
     info = sf.info(a.output)

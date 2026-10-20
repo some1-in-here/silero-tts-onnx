@@ -6,11 +6,11 @@ Faithful port of the upstream v5 package parsing (process_ssml*):
 {"text", "rate", "pitch", "break_ms" or None}.
 
 Downstream split (by design, mirrors upstream dataflow):
-- <prosody rate> becomes a per-token durs_rate array (the acoustic graph
-  already takes it; no graph changes); <prosody pitch> needs a
-  pitch_coefs input that only the v5_ru acoustic graph has — v5_6_ru
-  warns and ignores it (its pitch comes from the predictor instead;
-  never a silent drop);
+- <prosody rate> becomes a per-token durs_rate array; <prosody pitch>
+  becomes a per-token pitch_coefs array. v5 consumes the coefficients
+  directly; v5_6 applies the checkpoint's update_pitch_coef to its
+  predictor pitch. A version that declares no pitch support warns and
+  ignores pitch tags (never a silent drop);
 - <break> becomes a (token_pos, frames) plan applied by the shared
   two-pass path in strategies/pauses.py (the graphs have no symb_durs
   input).
@@ -21,6 +21,7 @@ Deliberate deviations from upstream (all documented, none silent):
   expanding them) — ours is strictly more capable;
 - has_text = segment holds non-space chars (upstream filters harder);
 - errors are ValueError (upstream mixes AssertionError/ValueError);
+- unsupported tags/attributes raise ValueError (never silently drop text);
 - fractional seconds ("1.5s") fail here exactly as upstream
   (int() parsing), pinned by test.
 """
@@ -44,7 +45,8 @@ def parse_break_attrib(attrib):
     """{'strength'|'time'} -> (strength, ms). Mirrors process_break_attrib."""
     for k in attrib.keys():
         if k not in ('strength', 'time'):
-            warnings.warn(f"silero-onnx: unsupported SSML <break> attrib: {k}")
+            raise ValueError(
+                f"Unsupported SSML <break> attribute: {k}")
     strength = attrib.get('strength', 'medium')
     break_time = attrib.get('time', None)
     if break_time is not None:
@@ -75,7 +77,8 @@ def parse_prosody(attrib):
     """{'rate'|'pitch'} -> (rate, pitch, change_rate, change_pitch)."""
     for k in attrib.keys():
         if k not in ('rate', 'pitch'):
-            warnings.warn(f"silero-onnx: unsupported SSML <prosody> attrib: {k}")
+            raise ValueError(
+                f"Unsupported SSML <prosody> attribute: {k}")
     rate = attrib.get('rate', None)
     pitch = attrib.get('pitch', None)
     if rate is None and pitch is None:
@@ -163,8 +166,9 @@ def _element(el, strength, rate, pitch):
                         'time': max(last_time, STRENGTH2TIME[b_strength])}
             parsed.extend(child_parsed)
         else:
-            warnings.warn(f"silero-onnx: unsupported SSML tag: {child.tag} "
-                          f"(its text is dropped, tail kept)")
+            raise ValueError(
+                f"Unsupported SSML tag: {child.tag} "
+                "(supported: speak, break, prosody, p, s)")
         last_tag = child.tag
         if child.tail:
             tail_text = child.tail

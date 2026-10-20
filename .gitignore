@@ -2,7 +2,7 @@
 # (python scripts/export_all.py) and never committed:
 # <repo>/models/onnx/ (generated .onnx + gate logs) and
 # <repo>/models/torch/ (raw upstream checkpoints).
-models/
+/models/
 # Local virtualenvs and generated audio.
 .venv-build/
 .venv/

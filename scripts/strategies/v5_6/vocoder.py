@@ -10,13 +10,23 @@ same contract as the fused main tail).
 Complex tensors never appear: spec splits into real/imag parts feeding
 the proven float64-core RealISTFT (same n_fft/hop/win/padding as v5).
 """
-import torch
+import os
+import sys
 
-from istft_model import RealISTFT
-from layernorm import ExportLayerNorm
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+V5_DIR = os.path.join(os.path.dirname(THIS_DIR), "v5")
+SCRIPTS_DIR = os.path.dirname(os.path.dirname(THIS_DIR))
+for _p in (SCRIPTS_DIR, V5_DIR, THIS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import torch  # noqa: E402
+
+from istft_model import RealISTFT  # noqa: E402
+from layernorm import ExportLayerNorm  # noqa: E402
 
 
-class ConvNeXtBlock56(torch.nn.Module):
+class ConvNeXtBlock_V56(torch.nn.Module):
     def __init__(self, dim=512, inter=1536, kernel=7, pad=3):
         super().__init__()
         self.dwconv = torch.nn.Conv1d(dim, dim, kernel, padding=pad,
@@ -34,13 +44,13 @@ class ConvNeXtBlock56(torch.nn.Module):
         return x + (h * self.gamma).transpose(1, 2)
 
 
-class VocoderBackbone56(torch.nn.Module):
+class VocoderBackbone_V56(torch.nn.Module):
     def __init__(self, mel_dim=192, dim=512, n_blocks=8):
         super().__init__()
         self.embed = torch.nn.Conv1d(mel_dim, dim, 7, padding=3)
         self.norm = ExportLayerNorm(dim)
         self.blocks = torch.nn.ModuleList(
-            [ConvNeXtBlock56(dim) for _ in range(n_blocks)])
+            [ConvNeXtBlock_V56(dim) for _ in range(n_blocks)])
         self.final_norm = ExportLayerNorm(dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -51,10 +61,10 @@ class VocoderBackbone56(torch.nn.Module):
         return self.final_norm(h.transpose(1, 2))
 
 
-class Vocoder56(torch.nn.Module):
+class Vocoder_V56(torch.nn.Module):
     def __init__(self, dim=512, n_bins=1201):
         super().__init__()
-        self.backbone = VocoderBackbone56()
+        self.backbone = VocoderBackbone_V56()
         self.out = torch.nn.Linear(dim, 2 * n_bins)
         self.istft = RealISTFT()
 

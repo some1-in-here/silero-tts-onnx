@@ -107,8 +107,8 @@ class OnnxStress:
 
     def _session(self):
         if self._sess is None:
-            import onnxruntime as ort
             from . import env as _env
+            from .ort import create_session
 
             if self._models_dir:
                 path = os.path.join(self._models_dir, "silero_stress.onnx")
@@ -119,11 +119,7 @@ class OnnxStress:
                 raise SystemExit(
                     "silero-onnx: error: missing model file " + str(path) +
                     " (pass models_dir explicitly or set SILERO_ONNX_MODELS)")
-            so = ort.SessionOptions()
-            so.log_severity_level = 3  # ERROR only (see engine.py)
-            self._sess = ort.InferenceSession(os.path.abspath(path),
-                                              sess_options=so,
-                                              providers=["CPUExecutionProvider"])
+            self._sess = create_session(path)
         return self._sess
 
     # -- text plumbing, ported 1:1 from homosolver.py --

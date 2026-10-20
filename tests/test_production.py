@@ -69,7 +69,7 @@ def test_runtime_package_has_no_torch_imports():
     import ast
     import pathlib
 
-    pkg = pathlib.Path(F.__file__).parent
+    pkg = pathlib.Path(F.__file__).parent.parent
     offenders = []
     for py in sorted(pkg.rglob("*.py")):
         tree = ast.parse(py.read_text(encoding="utf-8"))

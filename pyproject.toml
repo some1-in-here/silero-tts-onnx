@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "silero-onnx-tts"
-version = "0.4.1"
+version = "0.5.0"
 description = "Torch-free Russian Silero TTS (v5_ru + v5_6_ru; v5_6_ru is the default) through ONNX Runtime (48 kHz, CPU)"
 readme = "README.md"
 requires-python = ">=3.12"

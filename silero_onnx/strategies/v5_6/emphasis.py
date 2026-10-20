@@ -2,11 +2,12 @@
 
 Mirrors snakers4/silero-models ru/v5_6_ru package
 (multi_acc_v3_package.py) text algorithms EXACTLY:
-  TYPE2ID / classify_sentence / classify_text (question taxonomy),
+  SENTENCE_TYPE_TO_ID / classify_sentence_type /
+  classify_sentence_types (question and exclamation taxonomy),
   **-emphasis validation + ** -> * conversion, *-focus stripping,
   <intensity=N> extraction, focus-word re-marking on accented text,
   parse_focus_from_text, char_sent_ids / token_sent_spans,
-  emph_spans_from_focus, build_type_ids_tokens, place_tokens.
+  emph_spans_from_focus, build_sentence_type_ids, place_tokens.
 
 Nothing here imports torch (verified like the rest of `silero_onnx`);
 tensors are numpy. Deviations from upstream (documented, all loud):
@@ -28,8 +29,23 @@ import numpy as np
 assert "torch" not in __import__("sys").modules, \
     "torch must never be imported here"
 
-TYPE2ID = {"st": 0, "wh_q": 1, "general_q": 2, "alternative_q": 3,
-           "tag_q": 4, "exclam": 5}
+STATEMENT = "statement"
+WH_QUESTION = "wh_question"
+GENERAL_QUESTION = "general_question"
+ALTERNATIVE_QUESTION = "alternative_question"
+TAG_QUESTION = "tag_question"
+EXCLAMATION = "exclamation"
+
+#: Sentence type -> acoustic ``type_ids`` value. The numeric order is
+#: part of the exported model contract; the names are for developers.
+SENTENCE_TYPE_TO_ID = {
+    STATEMENT: 0,
+    WH_QUESTION: 1,
+    GENERAL_QUESTION: 2,
+    ALTERNATIVE_QUESTION: 3,
+    TAG_QUESTION: 4,
+    EXCLAMATION: 5,
+}
 
 WH_FORMS = {
     "кто", "кого", "кому", "кем", "ком",
@@ -106,36 +122,47 @@ def _has_wh_prefix(text):
     return any(w in WH_FORMS for w in content)
 
 
-def classify_sentence(s):
-    s = s.strip()
-    if not s:
-        return "st"
-    s_clean = _strip_outer_quotes(s)
-    if not s_clean:
-        return "st"
-    tail = s_clean
+def classify_sentence_type(sentence, *, classify_questions=True):
+    """Return the sentence type used by the acoustic ``type_ids`` input.
+
+    ``classify_questions=False`` keeps exclamation detection but maps
+    every question form to a plain statement. This is how a version that
+    declares ``supports_questions=False`` avoids question-specific
+    prosody without disabling other sentence types.
+    """
+    sentence = sentence.strip()
+    if not sentence:
+        return STATEMENT
+    without_quotes = _strip_outer_quotes(sentence)
+    if not without_quotes:
+        return STATEMENT
+    tail = without_quotes
     if tail.endswith("?!") or tail.endswith("?..") or tail.endswith("?..."):
         tail = tail.rstrip(".!")
     if tail.endswith("?"):
-        q = _normalize_for_clf(tail)
-        if TAG_RE.search(q):
-            return "tag_q"
-        if _has_wh_prefix(q):
-            return "wh_q"
-        if re.search(r"\bили\b", q, re.IGNORECASE):
-            return "alternative_q"
-        return "general_q"
-    if s_clean.endswith("!"):
-        return "exclam"
-    return "st"
+        if not classify_questions:
+            return STATEMENT
+        question = _normalize_for_clf(tail)
+        if TAG_RE.search(question):
+            return TAG_QUESTION
+        if _has_wh_prefix(question):
+            return WH_QUESTION
+        if re.search(r"\bили\b", question, re.IGNORECASE):
+            return ALTERNATIVE_QUESTION
+        return GENERAL_QUESTION
+    if without_quotes.endswith("!"):
+        return EXCLAMATION
+    return STATEMENT
 
 
-def classify_text(text):
+def classify_sentence_types(text, *, classify_questions=True):
+    """Classify every sentence in ``text`` as ``type|type|...``."""
     if not text or not text.strip():
-        return "st"
+        return STATEMENT
     sentences = [s.strip() for s in SENT_SPLIT_RE.split(text.strip())
                  if s.strip()]
-    types = [classify_sentence(s) for s in sentences]
+    types = [classify_sentence_type(s, classify_questions=classify_questions)
+             for s in sentences]
     return "|".join(types)
 
 
@@ -309,15 +336,17 @@ def place_tokens(values, seq_len, symbol_to_id=None, sos_token='|', tail=0):
     return out
 
 
-def build_type_ids_tokens(sequence, types_list, emph_spans, id_to_symbol,
-                           sos_token='|'):
+def build_sentence_type_ids(sequence, sentence_types, emph_spans,
+                            id_to_symbol, sos_token='|'):
     """Per-token sentence types (+6 on emphasis spans), sos/eos aware."""
-    tids = [TYPE2ID.get(t, 0) + (len(TYPE2ID) if k in emph_spans else 0)
-            for k, t in enumerate(types_list)]
-    toks = [id_to_symbol[i] for i in sequence]
-    sent_ids = char_sent_ids(''.join(toks[1:-1]))
-    values = [tids[min(s, len(tids) - 1)] for s in sent_ids]
-    return place_tokens(values, len(toks), sos_token=sos_token,
+    type_count = len(SENTENCE_TYPE_TO_ID)
+    ids = [SENTENCE_TYPE_TO_ID.get(t, SENTENCE_TYPE_TO_ID[STATEMENT])
+           + (type_count if k in emph_spans else 0)
+           for k, t in enumerate(sentence_types)]
+    tokens = [id_to_symbol[i] for i in sequence]
+    sentence_ids = char_sent_ids(''.join(tokens[1:-1]))
+    values = [ids[min(s, len(ids) - 1)] for s in sentence_ids]
+    return place_tokens(values, len(tokens), sos_token=sos_token,
                         tail=values[-1] if values else 0)
 
 
@@ -330,3 +359,11 @@ def locate_emph_sents(marked_text, emph_idx):
                 out.add(si)
             k += 1
     return out
+
+
+# Historical names kept for callers that imported the first port. New
+# code should use the explicit names above.
+TYPE2ID = SENTENCE_TYPE_TO_ID
+classify_sentence = classify_sentence_type
+classify_text = classify_sentence_types
+build_type_ids_tokens = build_sentence_type_ids

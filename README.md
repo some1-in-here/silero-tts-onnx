@@ -1,12 +1,13 @@
 <!-- Maintainers: README is user-facing only — no internals, no how-it-works,
-     no numeric measurements. Documentation rules and the doc map: CONTRIBUTING.md. -->
+     no internal gate results. User-facing model sizes and rough speed are
+     allowed. Documentation rules and the doc map: CONTRIBUTING.md. -->
 
 # silero-onnx-tts 🔊
 
 A PyTorch-independent Russian text-to-speech engine powered by Silero TTS
 and ONNX Runtime. Text in, WAV out — no `torch` in the runtime process.
 
-Two model generations: **v5_ru** and **v5_6_ru**(the default).
+Two model generations: **v5_ru** and **v5_6_ru** (the default).
 
 ## Quickstart: from zero to audible speech (copy-paste)
 
@@ -48,15 +49,15 @@ Build details: [`scripts/README.md`](scripts/README.md). Development and interna
 
 ## Features
 
-- ✨ Emphasis (v5_6_ru): `**word**` emphasized, `*word*` focused,
-  `<intensity=0..3>` focus strength — see [Emphasis](#emphasis-v5_6_ru-only).
+- ✨ Emphasis: `**word**` emphasized, `*word*` focused,
+  `<intensity=0..3>` focus strength — see [Emphasis](#emphasis).
 - 🗣️ 5 voices: `aidar`, `baya`, `kseniya`, `eugene`, `xenia`, 48 kHz, CPU.
 - 📦 Runtime deps only: `onnxruntime`, `numpy`, `soundfile`, `num2words`.
 - ⚡ Fast on CPU: ~25× realtime — no GPU needed.
 - 🧠 Smart frontend: abbreviations, numbers (including negative and fractional),
   automated stress, yo-letter and homograph disambiguation.
-- 🎯 Faithful output: validated against the original Silero pipeline by the
-  test suite.
+- 🎯 Faithful output: the exported models are numerically gated against the
+  original Silero pipeline during build.
 
 ## Install
 
@@ -98,25 +99,33 @@ Download the ready-made files from
 [GitHub Releases](https://github.com/some1-in-here/silero-tts-onnx/releases)
 — one ZIP with everything, or individual files — into a local directory.
 
-| Model set | Files | Approx. size |
+| Model set | Files | Approx. size on disk |
 |---|---|---|
-| `v5_6_ru` (default) | 4 own (acoustic, duration & pitch predictors, vocoder) + 2 shared (stress, ngram) | ~290 MB |
-| `v5_ru` | 3 own (acoustic, vocoder, istft) + the same 2 shared (stress, ngram) | ~290 MB |
-| both sets (one ZIP) | all 9 | ~470 MB |
+| `v5_6_ru` (default) | 4 own (acoustic, duration & pitch predictors, vocoder) + 2 shared (stress, ngram) | ~307 MB |
+| `v5_ru` | 3 own (acoustic, vocoder, istft) + the same 2 shared (stress, ngram) | ~307 MB |
+| both sets (one ZIP) | all 9 | ~489 MB |
+
+### Version capabilities
+
+| ID | Speakers | Stress / Homographs | Questions | Emphasis / Exclamations | SSML | Sample rate | Language |
+|----|----------|---------------------|-----------|-------------------------|------|-------------|----------|
+| `v5_6_ru` | динамически | ✅ | ✅ | ✅ | ✅ (rate, pitch, breaks) | 48000 | `ru` |
+| `v5_ru` | динамически | ✅ | ❌ | ❌ | ✅ (rate, pitch, breaks) | 48000 | `ru` |
 
 Point the runtime at that directory with `SILERO_ONNX_MODELS` (or the
 `model_dir=` argument). The CLI also discovers `<repo>/models/onnx/`
 automatically.
 
 No prebuilt release for your case? Build the models once:
-[`scripts/README.md`](scripts/README.md).
+[`scripts/README.md`](scripts/README.md). The current `v5_6_ru`
+acoustic graph takes a `pitch_coefs` input; artifacts from older
+releases must be re-exported before they can be used with this runtime.
 
 ## Usage
 
 Two interfaces, one engine. Select the model version with
 `version="v5_ru"` in Python or `--model-version v5_ru` in the CLI.
-The default is `v5_6_ru` (emphasis markers); both versions do SSML,
-with one difference: `<prosody pitch>` works on `v5_ru` only.
+The default is `v5_6_ru`; `v5_ru` is the classic pipeline.
 
 ### A. Python library (embed in your code)
 
@@ -137,7 +146,7 @@ tts5 = SileroTTS(model_dir="path/to/models", version="v5_ru")  # classic v5 pipe
 silero-onnx "Сначала с нажимом: **важно**. Потом без нажима: важно." -o emph.wav
 silero-onnx --model-version v5_ru "Привет! Меня зовут Ксения." -o out5.wav
 
-silero-onnx --help      # --models-dir, --output, --speaker, --model-version, --ssml
+silero-onnx --help      # --models-dir, --output, --speaker, --model-version, --ssml, --speaker-list, --model-list, --examples
 silero-onnx --examples  # runnable samples: versions, emphasis, stress, SSML
 silero-onnx --speaker-list   # needs no models; --model-list lists versions
 ```
@@ -145,7 +154,7 @@ silero-onnx --speaker-list   # needs no models; --model-list lists versions
 One utterance per call: for very long texts, split at sentence boundaries
 (same ~1000-character guidance as the original Silero).
 
-## Emphasis (v5_6_ru only)
+## Emphasis
 
 | Markup | Effect | Example |
 |---|---|---|
@@ -166,24 +175,24 @@ does; plain text accepts it too.
 
 ## SSML (`--ssml` / `ssml=True`)
 
-Both model versions support SSML. The `<speak>` root is mandatory: without
-it, the input is rejected with a one-line error (no traceback). Plain text
-without `--ssml` never parses tags: `<break/>` would be vocalized as words.
-User `+` stress marks keep working inside SSML, and on `v5_6_ru` the
-`**` / `*` emphasis markers do too.
+The `<speak>` root is mandatory: without it, the parser raises
+`ValueError` (the CLI prints a one-line error, no traceback). Plain text
+without `--ssml` never parses tags: `<break/>` is not a pause — the
+markup characters are dropped by the text frontend. User `+` stress
+marks keep working inside SSML. Unsupported tags and unknown
+`<break>`/`<prosody>` attributes are rejected with a clear `ValueError`
+(shown as a clean CLI error), never silently dropped.
 
 | Tag | What it does | Example |
 |---|---|---|
 | `<break time="500ms"/>` / `<break time="2s"/>` | Exact pause (milliseconds or whole seconds) | `…пауза. <break time='500ms'/> Вот…` |
 | `<break strength="…"/>` | `x-weak` 25 ms … `x-strong` 1000 ms | `<break strength='weak'/>` |
 | `<prosody rate="…">` | `x-slow` 0.5 … `x-fast` 1.5, or `150%` | `<prosody rate='fast'>Скорее!</prosody>` |
-| `<prosody pitch="…">` | `x-low` 0.75 … `x-high` 1.25, `robot` 0, or `+12%` / `-10%` — `v5_ru` only | `<prosody pitch='high'>Высоко.</prosody>` |
+| `<prosody pitch="…">` | `x-low` 0.75 … `x-high` 1.25, `robot` 0, or `+12%` / `-10%` | `<prosody pitch='high'>Высоко.</prosody>` |
 | `<p>` / `<s>` | Paragraph/sentence breaks (`x-strong` / `strong`) | `<s>Первое.</s><s>Второе.</s>` |
 
-`<prosody pitch>` on `v5_6_ru` warns (once per utterance) and is ignored:
-that model takes pitch from its own predictor, rate and breaks work
-normally. A break on a phrase-final position can be shorter than requested
-— the sentence-final duration cap wins there, exactly as in the original
+A break on a phrase-final position can be shorter than requested — the
+sentence-final duration cap wins there, exactly as in the original
 Silero models.
 
 Run `silero-onnx --examples` for runnable samples.
@@ -221,8 +230,9 @@ In short: non-commercial use only, credit the authors, share alike.
 
 - Original author: the **Silero Team**
   ([silero-models](https://github.com/snakers4/silero-models)).
-- This product is a **derivative work** (Adapted Material) based on
-  Silero TTS v5, used under CC BY-NC-SA 4.0. What was changed:
+- This product is a **derivative work** (Adapted Material) based on the
+  Silero TTS v5 family (`v5_ru` / `v5_6_ru`), used under CC BY-NC-SA 4.0.
+  What was changed:
   weights transplanted into reimplemented modules and exported to
   ONNX (acoustic/vocoder/ISTFT), stress/ngram cores exported to ONNX,
   frontend and tooling rewritten torch-free.

@@ -21,14 +21,27 @@ from silero_onnx.frontend import load_symbol_table, tokenize  # noqa: E402
 
 
 def test_classify_taxonomy():
-    assert E.classify_text("Кто здесь?") == "wh_q"
-    assert E.classify_text("Меня зовут Ксения!") == "exclam"
-    assert E.classify_text("Правда, да?") == "tag_q"
-    assert E.classify_text("Ты будешь чай или кофе?") == "alternative_q"
-    assert E.classify_text("Привет.") == "st"
-    assert E.classify_text("Меня зовут Ксения?") == "general_q"
-    assert E.classify_text("") == "st"
-    assert E.classify_text("Привет. Пока!") == "st|exclam"
+    assert E.classify_sentence_types("Кто здесь?") == E.WH_QUESTION
+    assert E.classify_sentence_types("Меня зовут Ксения!") == E.EXCLAMATION
+    assert E.classify_sentence_types("Правда, да?") == E.TAG_QUESTION
+    assert (E.classify_sentence_types("Ты будешь чай или кофе?")
+            == E.ALTERNATIVE_QUESTION)
+    assert E.classify_sentence_types("Привет.") == E.STATEMENT
+    assert (E.classify_sentence_types("Меня зовут Ксения?")
+            == E.GENERAL_QUESTION)
+    assert E.classify_sentence_types("") == E.STATEMENT
+    assert (E.classify_sentence_types("Привет. Пока!")
+            == f"{E.STATEMENT}|{E.EXCLAMATION}")
+
+    # A version without question support still classifies exclamations,
+    # but folds every question form into a statement.
+    for text in ("Кто здесь?", "Меня зовут Ксения?", "Правда, да?",
+                 "Ты будешь чай или кофе?"):
+        assert (E.classify_sentence_types(text, classify_questions=False)
+                == E.STATEMENT)
+    assert (E.classify_sentence_types("Привет! Как дела?",
+                                      classify_questions=False)
+            == f"{E.EXCLAMATION}|{E.STATEMENT}")
 
 
 def test_split_emphasis():
@@ -86,7 +99,8 @@ def test_token_spans_and_type_ids():
     spans, sents = E.token_sent_spans(ids, syms)
     assert spans == [(1, 9), (10, 14)]
     assert sents == ["приве+т!", "пока"]
-    ti = E.build_type_ids_tokens(ids, ["exclam", "st"], {1}, syms)
+    ti = E.build_sentence_type_ids(
+        ids, [E.EXCLAMATION, E.STATEMENT], {1}, syms)
     assert ti.tolist() == [[5] * 10 + [6] * 5]
     assert (ti % 6).tolist() == [[5] * 10 + [0] * 5]
 

@@ -52,7 +52,7 @@ class _Frontend:
 def test_prepare_field_contract():
     """_prepare field contract: base == ti % 6, fm in {0,3}, rate ones.
 
-    Named fields (V56Feeds) make an fm/base swap unconstructable by
+    Named fields (Feeds_V56) make an fm/base swap unconstructable by
     callers (an ORT Gather OOB is what a swap costs)."""
     import numpy as np
     st = Strategy_V5_6("m", "d", {}, _Frontend())

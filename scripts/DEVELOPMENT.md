@@ -36,8 +36,8 @@ on current stacks).
 + window-normalization with real tensors only (see §2). It is first
 proven against the genuine `wrapped_jit_v.istft` on a generated real
 spectrum (`models/onnx/fixtures/spec_ref.pt` via `make_fixtures.py`) and
-a synthetic T=9 case (`atol=1e-4`, else exit 2 without exporting), then
-dynamo-exported with dynamic T.
+a synthetic T=9 case (`atol=1e-4`, else a non-zero `SystemExit` aborts
+before export), then dynamo-exported with dynamic T.
 
 **Stress (`export_stress.py`, classic exporter, opset 17).**
 `load_accentor().homosolver.model` (BERT-tiny + span head) arrives as a
@@ -61,9 +61,10 @@ gate `atol=1e-4` on both heads.
 
 ## 2. Working around ONNX Runtime strictness
 
-All five graphs run under ORT CPU with far stricter op semantics than
-eager torch. The workarounds below are load-bearing — removing any of
-them breaks export or inference (each was a measured failure, not a guess):
+All five v5 graphs run under ORT CPU with far stricter op semantics than
+eager torch. The four v5_6 sessions reuse the same constraints and the
+shared v5 blocks. The workarounds below are load-bearing — removing any
+of them breaks export or inference (each was a measured failure, not a guess):
 
 - **No complex tensors on any boundary** (`vocoder`, `istft`).
   `spec = mag*(x + i·y)` is split into three real inputs/outputs.
@@ -98,9 +99,12 @@ them breaks export or inference (each was a measured failure, not a guess):
   `ExportLayerNorm` computes the identical formula (biased variance,
   eps=1e-5) from mean/var/normalize ops, which are shape-preserving.
   Verified stack: torch 2.14.1 + onnx 1.23.2 + onnxscript 0.7.2.
-- **Dynamic axes, batch = 1.** All graphs export `T`/`F`/`K`/`W`/`N`
-  dynamic; batch-dependent control flow (punkt loop, padding) is valid
-  only for single utterances — the runtime pins batch 1 by construction.
+- **Dynamic axes.** The TTS graphs (acoustic/vocoder/predictor/iSTFT)
+  export their sequence/frequency axes dynamic with batch fixed to 1:
+  batch-dependent control flow (punkt loop, padding) is valid only for
+  single utterances, and the runtime pins it by construction. The
+  stress/ngram frontend graphs instead expose dynamic `B`/`T` (stress) and
+  `K`/`W` (ngram) for batched word/window inference.
 - **Single-file models (no sidecars).** The dynamo exporter
   externalizes large initializers into `.onnx.data`, but all our models
   are far below the 2 GB protobuf ceiling — so `_common.
@@ -118,7 +122,8 @@ them breaks export or inference (each was a measured failure, not a guess):
    transplant assert (weight rename) → update `build_acoustic.py` +
    the mirror module; ISTFT param assert (n_fft/hop/win) → re-base
    `istft_model.py`; new input arity → extend `input_names` +
-   `TorchFreeFrontend.prepare`.
+   `TextFrontend_Ru.prepare` (the legacy `TorchFreeFrontend.prepare`
+   alias remains available).
 2. **`silero_onnx/data/*.json` regeneration is out of scope here.**
    The JSON tables ship in the wheel and are versioned; exporters only
    rebuild `.onnx` weights. If upstream retrains (new vocab/homodict),
@@ -135,8 +140,9 @@ them breaks export or inference (each was a measured failure, not a guess):
    under the L1 regression bars, and a real transplant bug (wrong
    weights/op wiring) is orders of magnitude larger.
    L1 strict (deterministic, fixed reference): `1e-4` torch-vs-torch/ORT
-   (`1e-3` for acoustic mel/dur and vocoder mag/x/y, whose reduction-order
-   and BLAS-kernel noise is larger — measured, not guessed). Never widen
+   for predictors/stress/ngram/iSTFT; `1e-3` for v5 acoustic mel/dur and
+   vocoder mag/x/y, whose reduction-order and BLAS-kernel noise is larger
+   (v5_6 acoustic mel uses `1e-4`, dur `1e-6`). Never widen
    an L1 gate to green a run: a breach means graph divergence. The same
    rule applies to L0: widen only with documented cross-platform
    measurements showing floor-level noise, never to hide a breach.
@@ -157,17 +163,37 @@ them breaks export or inference (each was a measured failure, not a guess):
    extra axis: torch-vs-ONNX noise is platform-dependent even on the
    identical package stack (long-text mag 3.8e-3 on Windows vs 5.9e-3
    on GitHub ubuntu-latest). Its waveform bar stays tight (5e-4;
-   measured <=2.8e-4 on both), while mel/mag bars are diagnostics with
-   deliberate headroom above the worst observation (2e-2) - a runner
-   change must not flake a diagnostic, and a broken export is orders of
-   magnitude off, not ~1.5x. Never widen the waveform bar to green a run.
+   measured <=2.8e-4 on both); the mel/mag diagnostics are `1e-3` /
+   `2e-2`, with the mag bar deliberately above the worst observation -
+   a runner change must not flake a diagnostic, and a broken export is
+   orders of magnitude off, not ~1.5x. Never widen the waveform bar to
+   green a run.
+   The v5_6 track has a separate hard e2e gate in its `export.py`:
+   full torch `apply_tts` vs the four-session ORT chain with
+   `GATE_E2E = 2e-2` absolute waveform error, including `pitch_high`,
+   `pitch_low`, and `pitch_robot` SSML cases. `emph2` feeds torch's
+   recorded windowed gt into ORT and compares against the captured
+   torch main with effective pitch; the other cases exercise the
+   engine's full-sequence predictor path against fresh `apply_tts`
+   calls. Both sides must have the same sample count. A breach makes
+   `finish(ok=False)` abort before PASS.
+   The bar is deliberately above the measured full-chain error
+   (<=7.9e-4 worst comparable case, emph1) because four sessions
+   accumulate more noise than any component L1 gate; those component
+   bars stay unchanged and tight. The previous 8.9e-3 plain observation
+   exposed the missing update_pitch_coef channel, not graph noise; the
+   pitch cases now pin that path.
 4. **Adding a model.** Copy the smallest fitting exporter, keep the
    pattern: argparse `--out-dir` → `begin()` header → reference inputs
    (real, not random, wherever content matters) → pre-gate → export →
    `checker` → L1 ORT-vs-torch gate → second-shape probe → L2
    `stochastic_probe` (`_common.py`, seed 42) → `finish()` RESULT tail
-   (unified `# header` → `L1/L2` → `RESULT PASS/FAIL` format) →
-   non-zero exit on failure. Register it in `export_all.py`, in the
-   `scripts/README.md` table, in the root `DEVELOPMENT.md` map, and in
-   `check_models.py::EXPECTED` (+ a `_robustness` block there:
-   torch-free numpy multi-shape runs).
+   (unified `# header` → result lines (`L0`/`L1`/`L2` gates and the
+   version's e2e gate as applicable) → `RESULT PASS/FAIL` format) →
+   non-zero exit on failure.
+   Register it in the version's `ExportPipeline` (`STEPS` for v5;
+   `artifacts`/`export_all_onnx` for v5_6), in the version's `MODEL_SPECS`
+   entry (`MODEL_SETS` is derived), in `check_models.py::EXPECTED` (+ a
+   `_robustness` block there: torch-free numpy multi-shape runs), in the
+   `scripts/README.md` table, and in the root `DEVELOPMENT.md` map; add a
+   step to `export_all.py` only when adding a whole new version track.

@@ -11,7 +11,7 @@ Output : audio (B,N) fp32 waveform (48 kHz path, no PQMF).
 
 Gates:
   - RealISTFT vs torch.fft ISTFT on a real T=57 reference + a synthetic
-    T=9 case: max_abs <= 1e-4 (else SystemExit(2), export never runs),
+    T=9 case: max_abs <= 1e-4 (else a non-zero SystemExit aborts before export),
   - onnx.checker + L1 ORT vs RealISTFT (atol=1e-4), plus a second-length
     probe; then L2 stochastic (5 seeded random spectra, atol=1e-3).
 
@@ -89,7 +89,7 @@ def main():
             log.log(f"{cname}{tuple(r2.shape)}: max_abs={d:.3e} ok1e-4={ok}")
     if not allok:
         log.write(os.path.join(a.out_dir, "istft_export_result.txt"))
-        raise SystemExit("export_istft: RealISTFT fidelity gate FAILED (exit 2)")
+        raise SystemExit("export_istft: RealISTFT fidelity gate FAILED")
 
     real_key = sorted(k for k in cases if k.startswith("real"))[0]
     mag, x, y = cases[real_key]

@@ -35,7 +35,7 @@ from fftblock import FFTBlock
 from layernorm import ExportLayerNorm
 
 
-class SeriesPredictor56(torch.nn.Module):
+class SeriesPredictor_V56(torch.nn.Module):
     # n_speakers has NO default (unlike dims, it comes from the
     # checkpoint): constructing without it is a TypeError, never a
     # silent 5-voice module.
@@ -79,22 +79,22 @@ class SeriesPredictor56(torch.nn.Module):
         return self.lin(self.norm(h))
 
 
-class DurPredictor56(torch.nn.Module):
+class DurPredictor_V56(torch.nn.Module):
     def __init__(self, n_types, n_speakers):
         super().__init__()
-        self.inner = SeriesPredictor56(n_types=n_types,
-                                       n_speakers=n_speakers)
+        self.inner = SeriesPredictor_V56(n_types=n_types,
+                                          n_speakers=n_speakers)
 
     def forward(self, text, speaker_ids, mask, type_ids, focus_mask):
         return self.inner(text, speaker_ids, mask, type_ids,
                           focus_mask).squeeze(-1)
 
 
-class PitchPredictor56(torch.nn.Module):
+class PitchPredictor_V56(torch.nn.Module):
     def __init__(self, n_types, n_speakers):
         super().__init__()
-        self.inner = SeriesPredictor56(n_types=n_types,
-                                       n_speakers=n_speakers)
+        self.inner = SeriesPredictor_V56(n_types=n_types,
+                                          n_speakers=n_speakers)
 
     def forward(self, text, speaker_ids, mask, type_ids, focus_mask):
         return self.inner(text, speaker_ids, mask, type_ids,

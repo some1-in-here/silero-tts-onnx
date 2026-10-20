@@ -3,9 +3,9 @@
 Parser mirrors upstream v5 process_ssml* (tables, defaults, errors).
 v5_ru behavior: prosody rate/pitch reshape output, <break> forces exact
 pause frames via the two-pass path, plain SSML matches plain text.
-v5_6_ru: the same rate/break lowering is pinned torch-free on a stub
-frontend (strategy._prepare_ssml feeds) and measured on the real models;
-<prosody pitch> has no channel there and warns instead of working.
+v5_6_ru: the same rate/pitch/break lowering is pinned torch-free on a
+stub frontend (strategy._prepare_ssml feeds) and measured on the real
+models; <prosody pitch> reaches its acoustic pitch_coefs input.
 """
 import os
 import sys
@@ -148,20 +148,29 @@ def test_v56_ssml_p_s_imply_break_plans():
     assert [n for _, n in breaks] == [ms_to_frames(300)] * 2
 
 
-def test_v56_ssml_pitch_warns_once_and_is_ignored():
+def test_v56_ssml_pitch_lands_in_feeds():
     st = v56_strategy()
     plain, _ = st._prepare_ssml("<speak>раз два.</speak>", "xenia")
-    with pytest.warns(UserWarning, match="pitch"):
-        f, breaks = st._prepare_ssml(
-            "<speak><prosody pitch='high'>раз два.</prosody></speak>",
-            "xenia")
+    f, breaks = st._prepare_ssml(
+        "<speak><prosody pitch='high'>раз два.</prosody></speak>",
+        "xenia")
     assert (f.sequence == plain.sequence).all()
     assert bool((f.durs_rate == 1.0).all()) and breaks == []
+    assert f.pitch_coefs.shape == f.sequence.shape
+    assert np.allclose(f.pitch_coefs, 1.15)
+
+    # <prosody pitch="medium"> is an explicit unit coefficient: same
+    # feeds and no warning (upstream's 1.0 is a no-op).
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # an explicit no-op pitch: no warning
-        st._prepare_ssml(
+        warnings.simplefilter("error")
+        m, _ = st._prepare_ssml(
             "<speak><prosody pitch='medium'>раз два.</prosody></speak>",
             "xenia")
+        r, _ = st._prepare_ssml(
+            "<speak><prosody pitch='robot'>раз два.</prosody></speak>",
+            "xenia")
+    assert np.array_equal(m.pitch_coefs, plain.pitch_coefs)
+    assert np.array_equal(r.pitch_coefs, np.zeros_like(r.pitch_coefs))
 
 
 def test_v56_ssml_markers_inside_segments():
@@ -339,11 +348,17 @@ def test_parse_p_s_imply_breaks():
     assert segs[0]["break_ms"] == 1000
 
 
-def test_parse_unknown_tag_warns_and_drops_text():
-    with pytest.warns(UserWarning):
-        segs = parse_ssml('<speak>A. <foo>zzz</foo> B.</speak>')
-    joined = " ".join(s["text"] for s in segs)
-    assert "zzz" not in joined and "B." in joined
+def test_parse_unknown_tag_raises_value_error():
+    with pytest.raises(ValueError, match="Unsupported SSML tag"):
+        parse_ssml('<speak>A. <foo>zzz</foo> B.</speak>')
+
+
+def test_parse_unknown_attributes_raise_value_error():
+    with pytest.raises(ValueError, match="Unsupported SSML <break> attribute"):
+        parse_ssml('<speak>A. <break time="1s" foo="x"/> B.</speak>')
+    with pytest.raises(ValueError,
+                       match="Unsupported SSML <prosody> attribute"):
+        parse_ssml('<speak><prosody rate="slow" foo="x">A.</prosody></speak>')
 
 
 def test_ms_to_frames():
@@ -498,17 +513,25 @@ def test_v56_prosody_rate_changes_length():
 
 
 @pytest.mark.requires_v56
-def test_v56_prosody_pitch_warns_and_is_ignored():
-    # the v5_6 operating point has no pitch channel (gt_pitch comes from
-    # the predictor; no pitch_coefs input): warn, never pretend to pitch
-    a1, _ = tts56().synthesize("<speak>Привет.</speak>", speaker="xenia",
-                               ssml=True)
-    with pytest.warns(UserWarning, match="pitch"):
+def test_v56_prosody_pitch_changes_pitch_channel():
+    text = "Привет! Меня зовут Ксения."
+    a1, _ = tts56().synthesize(text, speaker="xenia")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         a2, _ = tts56().synthesize(
-            "<speak><prosody pitch='high'>Привет.</prosody></speak>",
+            f"<speak><prosody pitch='high'>{text}</prosody></speak>",
             speaker="xenia", ssml=True)
-    assert len(a1) == len(a2)
-    assert float(np.abs(a1 - a2).max()) == 0.0
+        a3, _ = tts56().synthesize(
+            f"<speak><prosody pitch='medium'>{text}</prosody></speak>",
+            speaker="xenia", ssml=True)
+        a4, _ = tts56().synthesize(
+            f"<speak><prosody pitch='robot'>{text}</prosody></speak>",
+            speaker="xenia", ssml=True)
+    assert len(a1) == len(a2) == len(a4)
+    assert float(np.abs(a1 - a2).max()) > 1e-3
+    assert float(np.abs(a1 - a4).max()) > 1e-3
+    # medium is the upstream unit coefficient; it must be a true no-op
+    assert float(np.abs(a1 - a3).max()) == 0.0
 
 
 @pytest.mark.requires_v56

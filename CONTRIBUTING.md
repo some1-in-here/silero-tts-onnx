@@ -10,6 +10,8 @@ Project-wide rules for changes. Where everything lives:
 - Build/export walkthrough and per-script reference —
   [`scripts/README.md`](scripts/README.md) and
   [`scripts/DEVELOPMENT.md`](scripts/DEVELOPMENT.md)
+- Isolated `v5_6_ru` export track —
+  [`scripts/strategies/v5_6/README.md`](scripts/strategies/v5_6/README.md)
 - CI pipelines and how to run them —
   [`.github/workflows/README.md`](.github/workflows/README.md)
 
@@ -21,6 +23,7 @@ Project-wide rules for changes. Where everything lives:
 | `DEVELOPMENT.md` | contributors | architecture, how-it-works, internals, measurements, CI |
 | `scripts/README.md` | builders | from-zero export walkthrough, per-script table |
 | `scripts/DEVELOPMENT.md` | export maintainers | exporter internals, gates, thresholds |
+| `scripts/strategies/v5_6/README.md` | v5_6 export maintainers | isolated track contents, route, runtime SSML contract |
 | `.github/workflows/README.md` | CI maintainers | pipeline reference, run instructions |
 
 **`README.md` rules (hard):**
@@ -28,7 +31,8 @@ Project-wide rules for changes. Where everything lives:
 - **Strictly user-facing.** A reader who just wants speech out of text must
   never have to parse internals.
 - No "how it works" paragraphs, architecture, model-file/session
-  descriptions, numeric measurements or gate results, CI/workflow details.
+  descriptions, internal gate results, or CI/workflow details. User-facing
+  model sizes and rough speed are allowed.
 - Keep blocks short and skimmable: brief paragraphs, tables for options,
   copy-paste snippets, examples over explanation.
 - Keep the established section order: Quickstart (copy-paste) → Features →
