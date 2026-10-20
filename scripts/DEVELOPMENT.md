@@ -123,11 +123,23 @@ them breaks export or inference (each was a measured failure, not a guess):
    The JSON tables ship in the wheel and are versioned; exporters only
    rebuild `.onnx` weights. If upstream retrains (new vocab/homodict),
    the dumps must be re-taken from live objects — a separate procedure.
-3. **Threshold policy (two levels).**
+3. **Threshold policy (three levels: L0/L1/L2).**
+   L0 same-math transplant proofs (clean predictors and acoustic port vs
+   the scripted originals, torch-vs-torch): absolute bars `5e-6`
+   (predictors) and `3e-5` (acoustic mel). The float32 kernel floor is
+   not bit-stable across runners: the v0.4.0 release run on
+   ubuntu-latest measured pitch/plain2 `1.013e-6` (just over the old
+   `1e-6` bar) and acoustic mel/plain2 `8.583e-6` (86% of the old `1e-5`
+   bar), while earlier runs of the same commit stayed under both. Bars
+   keep ~3.5-5x headroom over the worst observation — still 20x/3.3x
+   under the L1 regression bars, and a real transplant bug (wrong
+   weights/op wiring) is orders of magnitude larger.
    L1 strict (deterministic, fixed reference): `1e-4` torch-vs-torch/ORT
    (`1e-3` for acoustic mel/dur and vocoder mag/x/y, whose reduction-order
    and BLAS-kernel noise is larger — measured, not guessed). Never widen
-   an L1 gate to green a run: a breach means graph divergence.
+   an L1 gate to green a run: a breach means graph divergence. The same
+   rule applies to L0: widen only with documented cross-platform
+   measurements showing floor-level noise, never to hide a breach.
    L2 stochastic (5 seeded cases, seed 42, varying T/B/W): relaxed
    (`3e-3` acoustic/vocoder, `1e-3` elsewhere) — random noise accumulates
    more error in deep stacks, so L2 guards breakage (hangs, NaNs,

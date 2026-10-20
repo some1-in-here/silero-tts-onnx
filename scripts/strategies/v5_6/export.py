@@ -91,8 +91,16 @@ FILES = MODEL_SETS[MODEL_TAG]
 # gt convention (mirrors torch exactly): gt_durs is LINEAR domain
 # (engine feeds exp(pred)-1, as torch's own windowed path does);
 # gt_pitch is RAW predictor output (no exp anywhere on the pitch path).
-GATE_L0_PRED = 1e-6
-GATE_L0_MEL = 1e-5
+# L0 bars sit on the float32 kernel floor, which is NOT bit-stable
+# across runners even for identical math: the v0.4.0 release run
+# (ubuntu-latest) measured pitch/plain2 1.013e-6 (just over the old
+# 1e-6 bar) and acoustic mel/plain2 8.583e-6 (86% of the old 1e-5 bar),
+# while earlier runs of the same commit stayed under both. Calibrated
+# with ~3.5-5x headroom over the worst observation: still 20x/3.3x
+# below the L1 regression bars (1e-4), so a transplant bug (wrong
+# weights/op wiring) is orders of magnitude off these limits.
+GATE_L0_PRED = 5e-6
+GATE_L0_MEL = 3e-5
 GATE_MAIN_DUR = 1e-6
 GATE_PRED = 1e-4
 GATE_VOC = 1e-3
@@ -239,7 +247,9 @@ def transplant_all(jm, log):
 
 
 def l0_predictors(jm, dur, pitch, log, captured):
-    """L0: clean predictors vs scripted originals (same math => ~1e-7)."""
+    """L0: clean predictors vs scripted originals (same math => ~1e-7
+    locally, float32 kernel floor ~1e-6 on other runners; see
+    GATE_L0_PRED)."""
     import numpy as np
     import torch
 
