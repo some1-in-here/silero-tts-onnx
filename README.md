@@ -121,6 +121,10 @@ No prebuilt release for your case? Build the models once:
 acoustic graph takes a `pitch_coefs` input; artifacts from older
 releases must be re-exported before they can be used with this runtime.
 
+For the separate fixed-voice English, Western European, Indic, Cyrillic and
+multilingual checkpoint path, see [multilingual usage and limitations](docs/multilingual.md).
+It does not change the Russian CLI defaults.
+
 ## Usage
 
 Two interfaces, one engine. Select the model version with

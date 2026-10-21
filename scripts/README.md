@@ -1,5 +1,9 @@
 # scripts/ — one-off ONNX export (build-time only)
 
+The additive ten-checkpoint multilingual exporter is documented separately
+in [docs/multilingual.md](../docs/multilingual.md#rebuild). It does not run
+as part of the existing Russian `export_all.py` pipeline.
+
 This folder produces the nine binary assets the runtime needs (five for
 `v5_ru`, four more for `v5_6_ru`; the stress/ngram models are shared). It is
 **dormant after the first successful build**: daily inference never needs
