@@ -10,11 +10,18 @@ from .pipeline import TextPipeline
 
 
 class TextFrontend(AbstractTextFrontend):
-    """Generic frontend: works with any ``AbstractLanguage``."""
+    """Generic frontend: works with any ``AbstractLanguage``.
 
-    def __init__(self, language, data_dir=None):
+    ``supports_pitch`` is a capability supplied by the caller (normally
+    ``EngineFactory`` from the selected model version). The frontend never
+    reads a ``ModelSpec`` itself; it only decides whether to emit the
+    ``pitch_coefs`` input the version expects.
+    """
+
+    def __init__(self, language, data_dir=None, supports_pitch=True):
         super().__init__(language)
         self._data_dir = data_dir
+        self._supports_pitch = bool(supports_pitch)
         self._pipeline = TextPipeline(language)
         _symbols, self._symbol_to_id = language.get_symbol_table()
         self._speakers = language.get_speakers()
@@ -56,11 +63,13 @@ class TextFrontend(AbstractTextFrontend):
         ids, _stressed = self.text_to_ids(text)
         seq = np.array([ids], dtype=np.int64)
         n = seq.shape[1]
-        return {"sequence": seq,
-                "speaker_ids": np.array([self._speakers[speaker]],
-                                        dtype=np.int64),
-                "durs_rate": np.ones((1, n), dtype=np.float32),
-                "pitch_coefs": np.ones((1, n), dtype=np.float32)}
+        feeds = {"sequence": seq,
+                 "speaker_ids": np.array([self._speakers[speaker]],
+                                         dtype=np.int64),
+                 "durs_rate": np.ones((1, n), dtype=np.float32)}
+        if self._supports_pitch:
+            feeds["pitch_coefs"] = np.ones((1, n), dtype=np.float32)
+        return feeds
 
     def prepare_ssml(self, ssml_text, speaker="xenia"):
         """SSML -> (feeds with per-token rate/pitch arrays, break plans).
@@ -71,7 +80,7 @@ class TextFrontend(AbstractTextFrontend):
         """
         self._check_speaker(speaker)
         service = SsmlLoweringService(normalize=self.normalize,
-                                      supports_pitch=True)
+                                      supports_pitch=self._supports_pitch)
         plan = service.plan(ssml_text)
         if not plan.segments:
             raise ValueError("silero-onnx: error: SSML holds no speakable text")
@@ -82,16 +91,17 @@ class TextFrontend(AbstractTextFrontend):
         rates, breaks = service.attribute(
             stressed, ids, self._symbol_to_id, plan.segments,
             plan.leading_break_ms)
-        pitches = service.attribute_pitch(
-            stressed, ids, self._symbol_to_id, plan.segments,
-            plan.leading_break_ms)
         n = len(ids)
-        return ({"sequence": np.array([ids], dtype=np.int64),
+        feeds = {"sequence": np.array([ids], dtype=np.int64),
                  "speaker_ids": np.array([self._speakers[speaker]],
                                          dtype=np.int64),
-                 "durs_rate": np.array([rates], dtype=np.float32),
-                 "pitch_coefs": np.array([pitches], dtype=np.float32)},
-                breaks)
+                 "durs_rate": np.array([rates], dtype=np.float32)}
+        if self._supports_pitch:
+            pitches = service.attribute_pitch(
+                stressed, ids, self._symbol_to_id, plan.segments,
+                plan.leading_break_ms)
+            feeds["pitch_coefs"] = np.array([pitches], dtype=np.float32)
+        return feeds, breaks
 
 
 class TextFrontend_Ru(TextFrontend):
@@ -99,7 +109,8 @@ class TextFrontend_Ru(TextFrontend):
 
     frontend_id = "ru"
 
-    def __init__(self, language=None, models_dir=None, data_dir=None):
+    def __init__(self, language=None, models_dir=None, data_dir=None,
+                 supports_pitch=True):
         if language is None:
             try:
                 language = Language_Ru(models_dir=models_dir,
@@ -108,14 +119,17 @@ class TextFrontend_Ru(TextFrontend):
                 raise SystemExit(
                     f"silero-onnx: error: cannot load frontend data from "
                     f"'{data_dir or DATA_DIR}': {e}")
-        super().__init__(language, data_dir=data_dir)
+        super().__init__(language, data_dir=data_dir,
+                         supports_pitch=supports_pitch)
 
 
 class TorchFreeFrontend(TextFrontend_Ru):
     """Backward-compatible name for the original runtime frontend."""
 
-    def __init__(self, models_dir=None, data_dir=DATA_DIR):
-        super().__init__(models_dir=models_dir, data_dir=data_dir)
+    def __init__(self, models_dir=None, data_dir=DATA_DIR,
+                 supports_pitch=True):
+        super().__init__(models_dir=models_dir, data_dir=data_dir,
+                         supports_pitch=supports_pitch)
 
 
 __all__ = ["TextFrontend", "TextFrontend_Ru", "TorchFreeFrontend"]

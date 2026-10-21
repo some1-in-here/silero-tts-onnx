@@ -18,7 +18,7 @@ import sys
 import numpy as np  # noqa: F401 (console-side array handling)
 
 from . import env
-from .frontend import (TextFrontend, TextFrontend_Ru, load_speaker_map)
+from .frontend import FrontendRegistry, TextFrontend, load_speaker_map
 from .languages import LanguageRegistry
 from .models import ModelRegistry
 from .ort import create_session
@@ -74,6 +74,8 @@ class EngineFactory:
             raise ValueError(
                 f"Language '{language_id}' requires stress, but version "
                 f"'{version_id}' does not support it")
+        if version_id not in StrategyFactory.list():
+            raise ValueError(f"no strategy for version {version_id}")
 
         # 2. Resolve the model directory (library never auto-discovers
         #    <repo>/models/onnx; the CLI does that separately).
@@ -99,11 +101,12 @@ class EngineFactory:
                 "model_dir=%r)" % (env.models_dir(), model_dir))
         data_dir = data_dir or _dev_data_dir()
 
-        # 3. Inject the language into the frontend.
-        if language_id == "ru":
-            frontend = TextFrontend_Ru(language=language, data_dir=data_dir)
-        else:
-            frontend = TextFrontend(language=language, data_dir=data_dir)
+        # 3. Inject the language and the version's pitch capability into
+        #    the frontend. The registry makes language-specific frontends
+        #    additive; the generic frontend is the fallback.
+        frontend = FrontendRegistry.get(
+            language_id, default=TextFrontend, language=language,
+            data_dir=data_dir, supports_pitch=version.supports_pitch)
 
         # 4. Open the version's sessions with the shared ORT policy.
         sessions = {}

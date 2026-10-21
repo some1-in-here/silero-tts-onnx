@@ -11,9 +11,12 @@ from ..languages.ru.symbols import (DATA_DIR, load_speaker_map,
                                     load_symbol_table)
 from .base import AbstractTextFrontend
 from .pipeline import TextPipeline
+from .registry import FrontendRegistry
 from .ru import TextFrontend, TextFrontend_Ru, TorchFreeFrontend
 from .stages import (AbbrevStage, NormalizeStage, NumberStage, StressStage,
                      TokenizeStage)
+
+FrontendRegistry.register(TextFrontend_Ru)
 
 
 def normalize(text: str) -> str:
@@ -32,9 +35,9 @@ def prepare(text: str, symbol_to_id, stress=True):
 
 __all__ = [
     "DATA_DIR", "AbstractTextFrontend", "TextFrontend", "TextFrontend_Ru",
-    "TorchFreeFrontend", "TextPipeline", "NormalizeStage", "AbbrevStage",
-    "NumberStage", "StressStage", "TokenizeStage", "normalize", "prepare",
-    "expand_abbreviations", "expand_numbers", "apply_stress", "get_accentor",
-    "load_symbol_table", "load_speaker_map", "tokenize", "add_sos_eos",
-    "ABBR",
+    "TorchFreeFrontend", "TextPipeline", "FrontendRegistry", "NormalizeStage",
+    "AbbrevStage", "NumberStage", "StressStage", "TokenizeStage", "normalize",
+    "prepare", "expand_abbreviations", "expand_numbers", "apply_stress",
+    "get_accentor", "load_symbol_table", "load_speaker_map", "tokenize",
+    "add_sos_eos", "ABBR",
 ]

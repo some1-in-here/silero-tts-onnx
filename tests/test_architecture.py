@@ -16,13 +16,13 @@ if ROOT not in sys.path:
 assert "torch" not in sys.modules, "test process imported torch before package!"
 
 from silero_onnx.engine import EngineFactory  # noqa: E402
-from silero_onnx.frontend import (AbstractTextFrontend, TextFrontend,  # noqa: E402
-                                  TextFrontend_Ru, add_sos_eos,
+from silero_onnx.frontend import (AbstractTextFrontend, FrontendRegistry,  # noqa: E402
+                                  TextFrontend, TextFrontend_Ru, add_sos_eos,
                                   load_symbol_table, tokenize)
 from silero_onnx.languages import (AbstractLanguage, Language_Ru,  # noqa: E402
                                    LanguageRegistry)
-from silero_onnx.models import (AbstractModelVersion, ModelRegistry,  # noqa: E402
-                                Version_V5Ru, Version_V56)
+from silero_onnx.models import (MODEL_SPECS, AbstractModelVersion,  # noqa: E402
+                                ModelRegistry, Version_V5Ru, Version_V56)
 from silero_onnx.models.spec import ModelSet, ModelSpec  # noqa: E402
 from silero_onnx.strategies import (AbstractTTSStrategy, StrategyFactory,  # noqa: E402
                                     Strategy_V5, Strategy_V56, Strategy_V5_6)
@@ -112,11 +112,14 @@ def test_registries_and_naming_contract():
 
 
 def test_shared_services_and_feed_naming():
+    from silero_onnx.strategies.common import ssml_lowering as legacy_ssml
+
     assert issubclass(PauseService, BreakProcessor)
     assert Feeds_V56 is V56Feeds
     assert Feeds_V56.__name__ == "Feeds_V56"
     assert (SsmlLoweringService.__module__
             == "silero_onnx.common.ssml_lowering")
+    assert legacy_ssml.SsmlLoweringService is SsmlLoweringService
 
 
 def test_language_abstraction_and_registry_extension():
@@ -237,6 +240,32 @@ def test_engine_factory_rejects_stress_incompatible_pair_before_io():
                                         model_dir="does-not-matter")
     finally:
         ModelRegistry.unregister(Version_NoStress.version_id)
+
+
+def test_engine_factory_rejects_version_without_strategy_before_io():
+    class Version_NoStrategy(AbstractModelVersion):
+        version_id = "v6_ru"
+        _spec = ModelSpec(
+            version_id="v6_ru",
+            display_name="registered without a strategy",
+            model_set=ModelSet(model_files={}, session_topology=(),
+                               acoustic_inputs=()),
+            supports_stress=True,
+            supports_ssml=True,
+        )
+
+        @property
+        def spec(self):
+            return self._spec
+
+    ModelRegistry.register(Version_NoStrategy())
+    try:
+        with pytest.raises(
+                ValueError, match=r"^no strategy for version v6_ru$"):
+            EngineFactory.create_engine("ru", "v6_ru",
+                                        model_dir="does-not-matter")
+    finally:
+        ModelRegistry.unregister("v6_ru")
 
 
 def test_ssml_unsupported_version_raises_value_error():
@@ -421,6 +450,51 @@ def test_text_frontend_ru_uses_injected_language():
     assert isinstance(fe, AbstractTextFrontend)
 
 
+def test_frontend_registry_routes_by_language_and_accepts_extensions():
+    assert FrontendRegistry.list() == ["ru"]
+    fe = FrontendRegistry.get("ru", language=Language_NoStress())
+    assert isinstance(fe, TextFrontend_Ru)
+    assert isinstance(FrontendRegistry.get(
+        "xx", default=TextFrontend, language=Language_NoStress()),
+        TextFrontend)
+
+    class Frontend_Test(TextFrontend):
+        frontend_id = "test_frontend_extension"
+
+    FrontendRegistry.register(Frontend_Test)
+    try:
+        got = FrontendRegistry.get("test_frontend_extension",
+                                   language=Language_NoStress())
+        assert type(got) is Frontend_Test
+        with pytest.raises(ValueError, match="already registered"):
+            FrontendRegistry.register(Frontend_Test)
+    finally:
+        FrontendRegistry.unregister("test_frontend_extension")
+
+    with pytest.raises(ValueError, match="unknown frontend"):
+        FrontendRegistry.get("test_frontend_extension")
+
+
+def test_frontend_emits_pitch_only_when_capability_is_enabled():
+    lang = Language_NoStress()
+    no_pitch = TextFrontend(lang, supports_pitch=False)
+    assert "pitch_coefs" not in no_pitch.prepare("а", "voice")
+
+    with pytest.warns(UserWarning, match="ignores <prosody pitch"):
+        feeds, breaks = no_pitch.prepare_ssml(
+            "<speak><prosody pitch='high'>а</prosody></speak>", "voice")
+    assert "pitch_coefs" not in feeds
+    assert breaks == []
+
+    with_pitch = TextFrontend(lang, supports_pitch=True)
+    plain = with_pitch.prepare("а", "voice")
+    assert np.allclose(plain["pitch_coefs"], 1.0)
+    pitched, breaks = with_pitch.prepare_ssml(
+        "<speak><prosody pitch='high'>а</prosody></speak>", "voice")
+    assert np.allclose(pitched["pitch_coefs"], 1.15)
+    assert breaks == []
+
+
 def test_legacy_frontend_surface_remains_available():
     from silero_onnx import frontend as F
     from silero_onnx.versions import (DEFAULT_VERSION, MODEL_SETS,
@@ -461,6 +535,24 @@ def test_runtime_import_graph_is_torch_free():
             if isinstance(node, ast.ImportFrom):
                 assert "strategies" not in (node.module or ""), (
                     name, node.module)
+
+
+def test_check_models_acoustic_io_is_derived_from_model_specs():
+    import importlib.util
+
+    path = os.path.join(ROOT, "scripts", "check_models.py")
+    spec = importlib.util.spec_from_file_location("check_models_contract",
+                                                   path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from silero_onnx.versions import MODEL_SETS
+
+    for version in MODEL_SPECS.values():
+        acoustic = version.model_files["acoustic"]
+        assert module.EXPECTED[acoustic][0] == list(version.acoustic_inputs)
+    artifacts = {f for files in MODEL_SETS.values() for f in files.values()}
+    assert artifacts <= set(module.EXPECTED)
 
 
 def test_ort_session_policy_is_reproducible():

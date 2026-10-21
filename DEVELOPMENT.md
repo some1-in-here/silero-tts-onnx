@@ -90,14 +90,31 @@ route.
   environment / inference failures; `ValueError` for domain errors (unknown
   speaker/symbols). No tracebacks for expected failures, no silent wrong output.
 
+### Architectural layers
+
+| Слой | Директория | Классы | Ответственность |
+|------|-----------|--------|-----------------|
+| Язык | `silero_onnx/languages/` | `AbstractLanguage`, `Language_Ru`, `LanguageRegistry` | Текстовые правила, ударения, символы, спикеры. Не знает о версиях моделей. |
+| Фронтенд | `silero_onnx/frontend/` | `AbstractTextFrontend`, `TextFrontend`, `TextFrontend_Ru`, `TextPipeline` | Текст → входы модели. Язык внедряется через DI. Не знает о версиях моделей. |
+| Версии моделей | `silero_onnx/models/` | `ModelSpec`, `ModelSet`, `Version_V5Ru`, `Version_V56`, `ModelRegistry` | Наборы ONNX-файлов, топология сессий, акустические входы, флаги возможностей. |
+| Общая логика | `silero_onnx/strategies/common/` | `FeedBuilder`, `BreakProcessor`, `PauseService` | Версия-независимый SSML lowering, паузы, сборка фидов. |
+| Нейтральный SSML | `silero_onnx/common/` | `SsmlLoweringService` | SSML lowering вне `strategies/`, чтобы фронтенд не зависел от стратегий. |
+| Стратегии | `silero_onnx/strategies/` | `AbstractTTSStrategy`, `Strategy_V5`, `Strategy_V56` | Версия-специфичная последовательность сессий и сборка фидов. |
+| Оркестратор | `silero_onnx/engine.py` | `EngineFactory`, `TTSEngine`, `SileroTTS` | Создаёт движок из пары (язык, версия модели). |
+| Экспорт | `scripts/strategies/` | `AbstractExportPipeline`, `ExportPipeline_V5`, `ExportPipeline_V56` | Template Method для ONNX-экспорта по версиям. |
+
 ## 3. Files in `silero_onnx/`
 
 - `__init__.py` — public facade only: `SileroTTS`, `EngineFactory`, `main`.
 - `engine.py` — orchestrator + CLI. `EngineFactory.create_engine(
   language_id, version_id, model_dir)` resolves both registries, rejects
-  incompatible language/version capability pairs *before* touching model
-  files, opens the version sessions, and injects language/frontend/
-  sessions/version into the strategy. CLI (`--output/--speaker/--models-dir/
+  incompatible language/version capability pairs and versions without a
+  registered strategy *before* touching model files, opens the version
+  sessions, and injects language/frontend/sessions/version into the
+  strategy. The frontend itself is selected through `FrontendRegistry`
+  (language id -> frontend factory, generic `TextFrontend` fallback), so a
+  new language does not add an `if language_id == ...` branch here.
+  CLI (`--output/--speaker/--models-dir/
   --model-version/--ssml/--examples/--speaker-list/--model-list`), console output, and
   CLI-only model-dir autoresolve
   (`SILERO_ONNX_MODELS`, then `<repo>/models/onnx/`) also live here.
@@ -124,10 +141,13 @@ route.
 - `frontend/` — text frontend with the language injected via DI:
   `base.py` (`AbstractTextFrontend`), `pipeline.py` (`TextPipeline`),
   `stages.py` (`NormalizeStage`, `AbbrevStage`, `NumberStage`,
-  `StressStage`, `TokenizeStage`), `ru.py` (`TextFrontend_Ru`; the legacy
-  `TorchFreeFrontend` name remains an alias). `__init__.py` re-exports the
-  old module-level `normalize()`/`tokenize()`/table helpers so existing
-  callers keep working.
+  `StressStage`, `TokenizeStage`), `registry.py` (`FrontendRegistry`),
+  `ru.py` (`TextFrontend_Ru`; the legacy `TorchFreeFrontend` name remains
+  an alias). The frontend receives the version's `supports_pitch`
+  capability from the factory and emits `pitch_coefs` only when it is
+  true. `__init__.py` re-exports the old module-level
+  `normalize()`/`tokenize()`/table helpers so existing callers keep
+  working.
 - `common/` - version-neutral services shared by the frontend and
   strategies: `ssml_lowering.py` (`SsmlLoweringService`, `SsmlPlan`,
   `SegmentPlan`: the single parse→normalize→segment merge→rate/pitch
@@ -142,8 +162,8 @@ route.
   numpy `fx_pauses` with a model-specific silence fill; `FeedBuilder`:
   version-input assembly,
   `durs_rate` finite-and-`> 0` validation, zero focus masks for no-stress
-  versions; `ssml_lowering.py` is a compatibility re-export of
-  `silero_onnx.common.ssml_lowering`),
+  versions; `ssml_lowering.py` is a backward-compatibility re-export only,
+  while strategies import the canonical `common/` module directly),
   `pauses.py` (compatibility re-export of `common/breaks.py`),
   `v5/strategy.py` (`Strategy_V5`), `v5_6/strategy.py` (`Strategy_V56`,
   historical alias `Strategy_V5_6`: markers + SSML rate/pitch/breaks →
@@ -158,9 +178,10 @@ route.
   tables are mirrored, with deliberate error-policy deviations documented
   in the module). Unsupported tags and unknown `<break>`/`<prosody>`
   attributes raise `ValueError` instead of being silently dropped.
-  Provides the ms→frames clock. Version-independent lowering lives in
-  `common/ssml_lowering.py` (the old
-  `strategies/common/ssml_lowering.py` path is a compatibility re-export).
+  Provides the ms→frames clock. Version-independent lowering lives only
+  in `common/ssml_lowering.py`; strategies import it directly from there,
+  and the old `strategies/common/ssml_lowering.py` path is a thin
+  compatibility re-export.
 - `ort.py` — single runtime session factory: 2 intra-op threads, 1
   inter-op thread, sequential execution (reproducible CPU policy). Used
   by acoustic/vocoder/predictor sessions and by stress/ngram inference.
@@ -196,6 +217,7 @@ silero/                          # repo root
 │   ├── frontend/                # text frontend (language injected via DI)
 │   │   ├── base.py              # AbstractTextFrontend
 │   │   ├── pipeline.py          # TextPipeline
+│   │   ├── registry.py          # FrontendRegistry
 │   │   ├── stages.py            # Normalize/Abbrev/Number/Stress/Tokenize stages
 │   │   └── ru.py                # TextFrontend_Ru (+ legacy TorchFreeFrontend)
 │   ├── common/                  # version-neutral services shared by frontend + strategies
@@ -287,11 +309,13 @@ maintainable by convention, not by vigilance: each version's exporter
 (v5's per-model `export_<name>.py` steps or the v5_6 `export.py`) writes
 its artifacts into `models/onnx/`, and `check_models.py::EXPECTED`
 holds the I/O contract of every artifact while enforcing full coverage
-of `MODEL_SETS` (both the v5_ru set and the v5_6_ru set). Adding a model
-means one `MODEL_SPECS` entry (`MODEL_SETS` is derived from it), one
-exporter registration (the v5 `STEPS` list or the v5_6 `artifacts`/
-`export_all_onnx`), and one `EXPECTED` row; a new version track also gets
-an `export_all.py` step.
+of `MODEL_SETS` (both the v5_ru set and the v5_6_ru set). Acoustic input
+names come from `ModelSpec.acoustic_inputs()` rather than a duplicated
+list. Adding a model means one `MODEL_SPECS` entry (`MODEL_SETS` is
+derived from it), one exporter registration (the v5 `STEPS` list or the
+v5_6 `artifacts`/`export_all_onnx`), and one non-acoustic `EXPECTED` row
+(the acoustic input contract comes from `ModelSpec`); a new version track
+also gets an `export_all.py` step.
 `scripts/package_models.py` derives the release ZIP contents from the
 same `MODEL_SETS`, so a release cannot silently omit a model set.
 

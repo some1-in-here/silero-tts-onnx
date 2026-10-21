@@ -26,11 +26,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-# I/O spec per artifact (names AND order are the runtime contract).
-EXPECTED = {
+from silero_onnx.models import MODEL_SPECS  # noqa: E402
+
+# Non-acoustic I/O specs (names AND order are the runtime contract).
+_STATIC_EXPECTED = {
     # -- v5_ru set (5 files) --
-    "acoustic_v5_ru.onnx": (["sequence", "speaker_ids", "durs_rate",
-                             "pitch_coefs"], ["mel", "dur"]),
     "vocoder_v5_ru.onnx": (["mel"], ["mag", "x", "y"]),
     "istft_48k.onnx": (["mag", "x", "y"], ["audio"]),
     "silero_stress.onnx": (["input_ids", "homo_start_ids",
@@ -38,9 +38,6 @@ EXPECTED = {
     "ngram_core.onnx": (["ind", "offsets"],
                         ["stress_logits", "yo_logits"]),
     # -- v5_6_ru set (4 files; stress/ngram above are shared) --
-    "acoustic_v5_6_ru.onnx": (["sequence", "speaker_ids", "durs_rate",
-                               "gt_durs", "gt_pitch", "pitch_coefs",
-                               "type_ids", "focus_mask"], ["mel", "dur"]),
     "dur_predictor_v5_6_ru.onnx": (["text", "speaker_ids", "mask",
                                     "type_ids", "focus_mask"], ["dur"]),
     "pitch_predictor_v5_6_ru.onnx": (["text", "speaker_ids", "mask",
@@ -48,6 +45,16 @@ EXPECTED = {
                                      ["pitch"]),
     "vocoder_v5_6_ru.onnx": (["mel"], ["audio"]),
 }
+
+# Acoustic input names are declared by ModelSpec.acoustic_inputs(), so the
+# check cannot drift from the runtime contract. Outputs are shared here.
+EXPECTED = dict(_STATIC_EXPECTED)
+EXPECTED.update({
+    spec.model_files["acoustic"]: (list(spec.acoustic_inputs),
+                                   ["mel", "dur"])
+    for spec in MODEL_SPECS.values()
+    if "acoustic" in spec.model_files
+})
 
 ROBUST_SEED = 42
 

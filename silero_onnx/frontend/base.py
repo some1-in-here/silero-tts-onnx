@@ -10,6 +10,8 @@ class AbstractTextFrontend(ABC):
     versions or ONNX sessions.
     """
 
+    frontend_id: str = ""
+
     def __init__(self, language):
         self._language = language
 

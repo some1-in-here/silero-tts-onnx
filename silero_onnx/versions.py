@@ -6,8 +6,10 @@ surface stable for the CLI, scripts and tests.
 """
 from .models import MODEL_SPECS
 
+#: Registered model sets that declare artifacts. Empty placeholder specs
+#: stay out of the compatibility/CLI surface until they get a model set.
 MODEL_SETS = {vid: dict(spec.model_files)
-              for vid, spec in MODEL_SPECS.items()}
+              for vid, spec in MODEL_SPECS.items() if spec.model_files}
 
 VERSIONS = tuple(MODEL_SETS)
 

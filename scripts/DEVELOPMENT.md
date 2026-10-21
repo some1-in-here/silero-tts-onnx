@@ -193,7 +193,9 @@ of them breaks export or inference (each was a measured failure, not a guess):
    non-zero exit on failure.
    Register it in the version's `ExportPipeline` (`STEPS` for v5;
    `artifacts`/`export_all_onnx` for v5_6), in the version's `MODEL_SPECS`
-   entry (`MODEL_SETS` is derived), in `check_models.py::EXPECTED` (+ a
-   `_robustness` block there: torch-free numpy multi-shape runs), in the
-   `scripts/README.md` table, and in the root `DEVELOPMENT.md` map; add a
-   step to `export_all.py` only when adding a whole new version track.
+   entry (`MODEL_SETS` is derived), in `check_models.py::EXPECTED` (the
+   acoustic input names are generated from `ModelSpec.acoustic_inputs`;
+   other I/O rows are manual) (+ a `_robustness` block there: torch-free
+   numpy multi-shape runs), in the `scripts/README.md` table, and in the
+   root `DEVELOPMENT.md` map; add a step to `export_all.py` only when
+   adding a whole new version track.
